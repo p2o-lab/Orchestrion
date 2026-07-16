@@ -127,7 +127,7 @@ Orchestrion/                 (repo root — already exists)
 
 | M | Goal | Done when |
 |---|---|---|
-| **M0** | Scaffold backend (FastAPI + asyncua deps) + frontend (Vite/React); health endpoint | `GET /health` returns ok; React shell loads |
+| **M0** | Scaffold backend (FastAPI + asyncua deps) + frontend (Vite/React); health endpoint | `GET /api/health` returns ok; React shell loads |
 | **M1** | **MTP parser** builds the model from a real `.aml` | Parses VisionForge `.aml` → services/procedures/comm bindings; unit-tested |
 | **M2** | **Connect + read** live state | asyncua connects to VisionForge:48050, resolves ns by URI, subscribes `StateCur`; UI shows live state |
 | **M3** | **Command** the service | **Mode switched to Automatic/External** (confirmed via `StateAutAct`/`SrcExtAct`), **procedure selected and confirmed** (`ProcedureReq` readback), **then** Start/Stop accepted on `CommandExt`; state transitions observed live; `CommandEn` drives button enable |
@@ -150,4 +150,8 @@ Orchestrion/                 (repo root — already exists)
 
 ## 9. Next action
 
-**M0 remainder.** The `Orchestrion` repo, `backend/.venv` (Python 3.12.6), and the Vite `react-ts` frontend (dev proxy + `.gitignore`) already exist. Remaining: add `backend/pyproject.toml` (`requires-python >=3.12`; deps `fastapi`, `asyncua`, `uvicorn`, `pytest`, `pydantic`), create the `orchestrion` package with a FastAPI `/health` endpoint, and verify both dev servers run. Then M1 (parser) against a real VisionForge `.aml`.
+**M0 remainder.** The `Orchestrion` repo, `backend/.venv` (Python 3.12.6), and the Vite `react-ts` frontend (dev proxy + `.gitignore`) already exist. Remaining: add `backend/pyproject.toml` (`requires-python >=3.12`; deps `fastapi`, `asyncua`, `uvicorn`, `pytest`, `pydantic`), create the `orchestrion` package with a FastAPI `/api/health` endpoint, and verify both dev servers run. Then M1 (parser) against a real VisionForge `.aml`.
+
+> **Endpoint path — `/api/health`, not `/health`.** The Vite dev proxy forwards `/api/*` **without a `rewrite`**, so the backend must own the `/api` prefix; a bare `/health` is shadowed by the `:5173` dev server and never reaches uvicorn. *(Decided 2026-07-16 — see `docs/progress/001_m0_scaffold.md` open item 5.)*
+
+> **Live progress lives in the journal.** This section is the original plan of record; for what is actually done, read `docs/progress/000_INDEX.md` + the latest journal (Rule 3). As of 2026-07-16 `pyproject.toml` and the `/api/health` endpoint are **done**.

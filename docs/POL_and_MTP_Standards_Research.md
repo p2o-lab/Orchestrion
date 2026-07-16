@@ -107,7 +107,7 @@ This is the landscape a POL sits in. **Currency flags** matter — read them.
 ### 3.6 Standards acquisition status (as of 2026-07-08)
 
 The full minimal standards set for a v1 POL is now settled. **Paid standards are provided locally** (TU Dresden access) in
-`../standards/` (the workspace-root `standards/` folder, per CLAUDE.md); **free standards will be fetched from the web** (thorough search, primary sources).
+`../standards/` (the workspace-root `standards/` folder, per the workspace layout); **free standards will be fetched from the web** (thorough search, primary sources).
 
 **🔒 Paid — ACQUIRED (local `../standards/` folder), bilingual DE/EN unless noted:**
 
