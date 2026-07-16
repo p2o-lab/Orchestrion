@@ -4,7 +4,14 @@
 >
 > **Sourcing discipline.** Every non-trivial claim is tagged inline with its source using short keys (e.g. `[2658-1:2019]`, `[WG-2024]`). Full bibliography with access notes and *currency flags* is at the end (§12). Where a year/version could not be confirmed from a primary source, it is marked **⚠ unconfirmed** rather than guessed. Claims taken from the MTPPy open-source reference implementation (not the standard) are labelled `[MTPPy]` and treated as *illustrative, not authoritative*.
 >
-> **Version target.** This document centers on **MTP 1.1.0** — the latest *stable, widely-implemented* baseline (what SIMATIC PCS neo 4.0, COPA-DATA zenon, etc. run today). **MTP 2.0** (officially published by PI on **2026-01-20**; summer 2025 was the missed target) is covered separately in §4.6 as *emerging — plan for it, don't build on it yet.*
+> **Version target.** This document centers on **MTP 1.1.0** — the latest *widely-implemented* baseline (what SIMATIC PCS neo 4.0, COPA-DATA zenon, etc. run today). **MTP 2.0** (officially published by PI on **2026-01-20**; summer 2025 was the missed target) is covered separately in §4.6 as *emerging — plan for it, don't build on it yet.*
+>
+> **⚠ Nuance, verified 2026-07-16 — do not read "1.1.0" as "released".** The MTP **manifest** aspect model
+> **1.1.0** is specified by `[2658-1:2022-01]`, which is stamped **Entwurf/Draft** on every page; the only
+> *released* Blatt 1 is **2019-10**, and it specifies manifest **1.0.0**. We nevertheless target 1.1.0, because
+> (a) the **released** `[2658-4:2022]` service model presumes CAEX 3.0 (§4.1), and (b) real 2026 vendor exports
+> are 1.1.0 (§4.1). So: **target 1.1.0 while its manifest spec is a draft** — a deliberate, evidenced choice, not
+> an assumption. See `docs/progress/002_m1_mtp_parser.md` §2.
 >
 > _Compiled 2026-07-08._
 
@@ -59,11 +66,12 @@ This is the landscape a POL sits in. **Currency flags** matter — read them.
 
 | Sheet (Blatt) | Scope | Version / status | Flag |
 |---|---|---|---|
-| **2658-1** | General concept & interfaces (manifest, OPC UA, modelling rules) | **Released 2019-10** (draft 2017-06) | ✅ stable |
+| **2658-1** | General concept & interfaces (manifest, OPC UA, modelling rules) | **Released 2019-10** = manifest **1.0.0** · **Draft 2022-01** = manifest **1.1.0** + `AttachmentSet` 1.0.0 | ✅ released (1.0.0) / ⚠ draft (1.1.0) |
 | **2658-2** | Modelling of Human-Machine Interfaces (HMI) | **Released 2019-11** (draft 2018-01) | ✅ stable |
 | **2658-3** | Library for data objects (DataAssemblies: sensors, actuators, setpoints, interlocks) | **Released 2020-09** (superseded 2019-03 draft) | ✅ stable |
 | **2658-4** | Modelling of module services (service interface + **state machine**) | **Released 2022-10** | ✅ stable |
-| **2658-5** | Runtime & communication aspects with OPC UA (PEA/POL identification, interoperability) | **Draft 2022-04**; **Blatt 5.1 draft 2022-10** | ⚠ draft |
+| **2658-5** | Runtime & communication aspects — **generic** (server profiles, connection setup). Defines **no** OPC UA classes (`OPCUAServer`/`OPCUAItem`/`Endpoint` = 0 occurrences). | **Draft 2022-04** | ⚠ draft · M2 (connection) |
+| **2658-5.1** | **The OPC UA sub-part** — defines SUC `OPCUAServer` (+`Endpoint`, Table 32) and IC `OPCUAItem` (+`Identifier`/`Namespace`, Table 33). **`[2658-1:2022]` §9.1 delegates the concrete `ServerAssembly`/`DataItem` derivations here** → **required**, not merely informational. | **Draft 2022-10**; its own aspect model `2658-5.1:CommunicationSet` is **v0.1.0** | ⚠⚠ draft **and v0.1.0** — see §4.4 |
 | **2658-6** | Concept of modular alarm management | **2021-01** (draft) | ⚠ draft |
 | **2658-7** | Modelling of alarms and events (alarm data model + visualization; builds on Blatt 1 + 6) | **2021-02** (draft) | ⚠ draft |
 | **IEC 63280** | International standardization of MTP | **In development** (MTP parts restructured to fold in "practically unchanged") | ⚠ emerging, *not* a published mirror |
@@ -113,11 +121,13 @@ The full minimal standards set for a v1 POL is now settled. **Paid standards are
 
 | Standard | Edition (file) | Folder | Priority to process |
 |---|---|---|---|
-| VDI/VDE/NAMUR 2658 **Blatt 1** | 2019-10 | `../standards/VDI-2658/` | already read (free copy earlier) |
+| VDI/VDE/NAMUR 2658 **Blatt 1** | 2019-10 (**released** = manifest 1.0.0) | `../standards/VDI-2658/` | ✅ read (§7.3–§7.6, Table 4, Annex A) |
+| VDI/VDE/NAMUR 2658 **Blatt 1** | **2022-01 (draft) = manifest 1.1.0** | `../standards/VDI-2658/` | ⭐⭐ **Critical — our build target.** ✅ read (§2, §5, §8, §9, §13); §10–§12 + Annex pending |
 | 2658 **Blatt 2** (HMI) | 2019-11 | `../standards/VDI-2658/` | **High** (HMI/faceplates) |
 | 2658 **Blatt 3** (data objects) | 2020-09 | `../standards/VDI-2658/` | ⭐ **Critical** (parser / DataAssemblies) |
 | 2658 **Blatt 4** (services) | 2022-10 | `../standards/VDI-2658/` | ⭐⭐ **Critical, process first** (state machine + command encoding) |
-| 2658 **Blatt 5** + **5.1** (comms) | 2022-04 / 2022-10 (drafts) | `../standards/VDI-2658/` | Informational (OPC UA layer) |
+| 2658 **Blatt 5** (generic comms) | 2022-04 (draft) | `../standards/VDI-2658/` | **M2** — server profiles / connection setup. Defines no OPC UA classes. |
+| 2658 **Blatt 5.1** (OPC UA) | 2022-10 (draft; aspect model **v0.1.0**) | `../standards/VDI-2658/` | ⭐ **Required, not informational** — `[2658-1:2022]` §9.1 delegates `OPCUAServer`/`OPCUAItem` here. ✅ read (§4, Tables 32/33). **But see §4.4: real files do not implement its v0.1.0 `Identifier` mechanism yet.** |
 | 2658 **Blatt 6** (alarm concept) | 2021-01 (draft) | `../standards/VDI-2658/` | Later (alarms = v2) |
 | 2658 **Blatt 7** (alarms & events) | 2021-02 (draft) | `../standards/VDI-2658/` | Later (alarms = v2) |
 | **IEC 61512-1** (ISA-88) | DIN EN IEC 61512-1 2023-11 (+ DIN EN 61512-1 2000-01 DE) | `../standards/ISA-88 (IEC-61512-1)/` | **Medium** (recipe-engine phase) |
@@ -145,13 +155,52 @@ The full minimal standards set for a v1 POL is now settled. **Paid standards are
 ### 4.1 The MTP file: AutomationML manifest as a table of contents
 
 - The MTP is an **AutomationML** file (`IEC 62714`), which sits on **CAEX** (`IEC 62424`). `[2658-1:2019]`
-- **CAEX version — verified from the standard's own example:** MTP 1.x manifests use **CAEX 2.15** (`IEC 62424:2008`). Blatt 1's example AML declares `<CAEXFile SchemaVersion="2.15" xsi:noNamespaceSchemaLocation="CAEX_ClassModel_V2.15.xsd" …>` — note **`noNamespaceSchemaLocation`**, i.e. there is **no default CAEX namespace** on the root. `[2658-1:2019]` (example, quoted)
-  - CAEX **3.0** (`IEC 62424:2016`) is a *different, later* schema that introduces the default namespace `xmlns="http://www.dke.de/CAEX"`. A parser hardcoded to CAEX 3.0 will fail on a standard-conformant MTP 1.x file (empirically observed: Recipol needed the `xmlns` injected; MTPPy's 2.15 output was actually correct). `[project-notes]`
-  - ⚠ Whether **MTP 2.0** moves to CAEX 3.0 is **unconfirmed** — check when adopting 2.0. A POL parser should therefore tolerate *both* (namespace-agnostic XPath, or detect `SchemaVersion`).
+- **⚠ CAEX version depends on the MTP *manifest* version — corrected 2026-07-16.** There are **two manifest
+  versions in the wild, and they are different formats**, not namespace variants:
+  - **Manifest 1.0.0** — `[2658-1:2019-10]`, **released**. Uses **CAEX 2.15** (`IEC 62424:2008`); the example AML
+    declares `<CAEXFile SchemaVersion="2.15" xsi:noNamespaceSchemaLocation="CAEX_ClassModel_V2.15.xsd" …>` —
+    note `noNamespaceSchemaLocation`, i.e. **no default CAEX namespace**. `[2658-1:2019]` (example)
+  - **Manifest 1.1.0** — `[2658-1:2022-01]`, **Entwurf/draft**. Normatively references **IEC 62714 Ed. 2.0**
+    (AutomationML 2.x) and **never mentions CAEX** → **CAEX 3.0**, `xmlns="http://www.dke.de/CAEX"`.
+  - **The move to CAEX 3.0 happened at 1.1.0 — not at MTP 2.0** (the earlier "unconfirmed / check at 2.0" note
+    was wrong). **Root cause, verified from both schemas:** `AttributeTypeLib` exists **only in CAEX 3.0** (0
+    occurrences in the 2.15 schema; it is 3.0's 5th pillar). 1.1.0's binding needs `MTPATLib`, an
+    AttributeTypeLib — so **1.1.0 physically cannot be expressed in CAEX 2.15**. Conversely `[2658-4:2022]` §9
+    defines three AttributeType libraries (`MTPServiceATLib`, `MTPProcessValueATLib`, `MTPTextATLib`), so **the
+    released Blatt 4:2022 itself presumes CAEX 3.0.**
+  - **The differences are structural, not cosmetic** — a namespace-agnostic parser alone is **not** sufficient:
+
+    | | Manifest 1.0.0 | Manifest 1.1.0 |
+    |---|---|---|
+    | Aspect table-of-contents | `ExternalDataConnector` + `refURI` | IC **`AspectSetReference`** + **`AspectRef`** → IH's GUID |
+    | Dynamic binding | `AttributeDataType="xs:IDREF"` | AT **`IDLinkAttributeType`** (`AttributeDataType` stays `xs:string`) |
+    | Object IDs | CAEX-optional string | **mandatory GUID** (RFC 4122) |
+
+    A 1.0.0-based parser finds **zero aspects** in a 1.1.0 file. *(Verified in our own artifacts: HC30 has
+    `AspectSetReference` ×5 / `refURI` ×0; MTPPy has the reverse.)* `[project-notes]`
+  - Recipol's CAEX-3.0-only behaviour is therefore **not simply a bug** — it targets 1.1.0. Its real defect is
+    **failing on 2.15/1.0.0 files**, which remains our regression test. `[project-notes]`
 - AutomationML organizes a model into **InstanceHierarchies (IH)**. Each *aspect* of the module (services, HMI, communication…) gets its own IH. `[2658-1:2019]`
 - The **Manifest** is the single IH named **`ModuleTypePackage`**. It acts as a *table of contents*: it holds exactly one `InternalElement` of type `ModuleTypePackage`, which references the other aspect IHs. Aspects can be added later without touching existing ones (extensibility by design). `[2658-1:2019]` (quoted)
-- **Deliberate restriction:** MTP *does not use CAEX RoleClasses*. `[2658-1:2019]` — worth remembering when writing/parsing MTP, and a frequent source of confusion vs. "vanilla" AutomationML.
-- The **`Services` IH** describes functionality: `InternalElement`s of predefined classes — class **`Service`** for module services, class **`ServiceProcedure`** for operating modes. `[2658-1:2019][2658-4:2022]`
+- **⚠ "MTP does not use RoleClasses" was wrong — corrected 2026-07-16.** MTP **does** define and use RoleClasses:
+  `[2658-4:2022]` **Table 21** defines **`MissedValueFlag`** as `Type: RoleClass` in **`MTPServiceRCLib`**,
+  attached via `SupportedRoleClass` and carrying a `MissedValue` BOOL — i.e. a RoleClass **with semantics**.
+  Blatt 4 also defines `MTPTextRCLib`. `[2658-1:2022]` §8.1 makes it explicit: optional description components
+  **are** modelled as RoleClasses, and it must be stated whether they are `SupportedRoleClasses` or
+  `RoleRequirements`. Blatt 1:2019's Annex A likewise emits
+  `<SupportedRoleClass RefRoleClassPath="AutomationMLBaseRoleClassLib/AutomationMLBaseRole"/>`.
+  → **The actionable rule is different, and still holds:** **identify types via `RefBaseSystemUnitPath`
+  (InternalElement) / `RefBaseClassPath` (ExternalInterface) / `RefAttributeType` (Attribute) — never via
+  RoleClasses, and never via element *name*** (names are explicitly free; only `ModuleTypePackage` is fixed).
+- The **`Services` IH** describes functionality: `InternalElement`s of predefined classes — class **`Service`**
+  for module services, and — **⚠ corrected 2026-07-16** — class **`Procedure`**, *not* `ServiceProcedure`, for
+  the operating-mode variants. `[2658-4:2022]` **Table 30** names the SUC **`Procedure`** with
+  `Hierarchy: MTPServiceSUCLib/Service` → the path a parser must match is
+  **`MTPServiceSUCLib/Service/Procedure`**. **Root cause of the old error:** MTPPy emits `ServiceProcedure`
+  because it is built to a **2658-4 v0.1.0 pre-release draft**; the real vendor file (HC30, ServiceSet 1.0.0)
+  emits `Service/Procedure` and matches the standard. This doc had absorbed the **peer's draft** — exactly what
+  `[MTPPy]` is labelled *illustrative, not authoritative* to prevent. `[2658-4:2022][project-notes]`
+  *(Internal Python class naming remains a free choice; the **matched CAEX path** must be the standard's.)*
 - **HMI** is split: the *operation-screen hierarchy* ("Picture") lives inside the manifest; individual screen descriptions are exchangeable files (`hmi.graphml`) in the MTP folder structure — so the POL can auto-generate the module's faceplates. `[2658-1:2019][2658-2]`
 
 > **POL requirement:** parse an AML/CAEX file; locate the `ModuleTypePackage` IH; follow it to the `Services`, `Communication`, `HMI`, data-object, diagnostics/history, and alarm aspects; and build an internal model *without* relying on RoleClasses.
@@ -258,24 +307,66 @@ Source: **Figure 4 "MTP State machine for Services (version 2022)"**, reproduced
 
 - Modules integrate into the POL **via OPC UA** (`IEC 62541`); the PEA is the server. `[2658-1:2019]` (Fig. 2 "Example architecture for the integration of modules in a POL by means of OPC UA")
 - The POL must place every module's objects into its own namespace **unambiguously** — e.g. by namespacing per module. `[2658-1:2019]`
-- Each data point in the MTP references an OPC UA node; the manifest's communication aspect binds the abstract DataAssembly to a concrete server node (namespace + identifier). `[2658-1:2019][2658-5(draft)]`
+- Each data point in the MTP references an OPC UA node; the manifest's communication aspect binds the abstract DataAssembly to a concrete server node (namespace + identifier). `[2658-1:2019][2658-5.1(draft)]`
+
+> **⚠ Which document defines `OPCUAServer` / `OPCUAItem`? Verified 2026-07-16 — the answer is version-dependent.**
+> - `[2658-1:2019]` (manifest 1.0.0) defines them **itself**: SUC `MTPCommunicationSUCLib/ServerAssembly/OPCUAServer`
+>   with attribute `Endpoint`; IC `MTPCommunicationICLib/DataItem/OPCUAItem` with `Identifier` + `Namespace`
+>   (Table 2) + `Access` (Table 1). **The identifier's *type* is encoded in the attribute's `AttributeDataType`**
+>   — `xs:string` / `xs:integer` / `xs:base64binary` / `xs:ID` (Table 3).
+> - `[2658-1:2022]` (manifest 1.1.0) **delegates** them: §9.1 says the concrete `DataItem`/`ObjectItem`/
+>   `MethodItem` ICs and `ServerAssembly` SUCs "are to be introduced in further standard parts of **Blatt 5** by
+>   derivation". Its own `ServerAssembly` (Table 12) is **abstract, with no attributes**.
+> - **It is `[2658-5.1:2022]`, not Blatt 5**, that defines them: Table 32 `OPCUAServer` (+`Endpoint`) and
+>   Table 33 `OPCUAItem` (+`Identifier`, `Namespace`). Blatt 5 (2022-04) is the *generic* part — it contains
+>   **zero** occurrences of `OPCUAServer`/`OPCUAItem`/`Endpoint`.
+> - **But Blatt 5.1's aspect model is `2658-5.1:CommunicationSet` version `0.1.0`** — the same pre-release
+>   generation that made MTPPy's service model wrong — and its §4 still cites *"Part 1, Section 7.2"* (the 2019
+>   numbering). **Table 33 changes the identifier mechanism**: the type would come from *an AT derived from
+>   `OPCUABaseNodeIDType`*, not from `AttributeDataType`.
+> - **Real files have not followed it.** Our 1.1.0 vendor export (HC30) declares **no 2658-5.x version at all**,
+>   and its `OPCUAItem/Identifier` carries **no `RefAttributeType`** — its own description reads
+>   *"IdentifierType (depends on AttributeDataType)"*, i.e. the **2019** mechanism. Table 32's
+>   `OPCUAServer`/`Endpoint`, by contrast, matches HC30 exactly.
+>
+> **Stance:** implement the OPC UA item per **`[2658-1:2019]` Tables 1–3** (`Identifier` + `Namespace` +
+> `Access`; identifier type from `AttributeDataType`) — that is what conformant 1.1.0 files actually emit.
+> **Track Blatt 5.1 as the forward path; do not build to its v0.1.0 `OPCUABaseNodeIDType` mechanism yet.**
+> Blatt 5's server profiles become relevant at **M2** (connection setup). `[2658-1:2022][2658-5.1][project-notes]`
 
 > **Practical note (from this project's own integration work):** conformant POLs resolve namespaces **by URI**, not by numeric index — the OPC UA server must *register* a namespace URI, and the MTP must carry that URI (not a bare index). A reference impl that hard-codes a numeric namespace and omits registration will fail to bind in a real POL. This is an *implementation* lesson, consistent with the standard's "unambiguous namespace" requirement. `[project-notes]`
 
 ### 4.5 How the pieces nest (AML view)
 
 ```
-CAEXFile  (IEC 62424)                       ← AutomationML container (IEC 62714)
- ├─ InstanceHierarchy "ModuleTypePackage"   ← THE MANIFEST (table of contents)
- │   └─ InternalElement : ModuleTypePackage  → references the aspect IHs below
- ├─ InstanceHierarchy  (Services aspect)
- │   ├─ InternalElement : Service            ← one per module service
- │   │   └─ InternalElement : ServiceProcedure  ← operating modes/variants
- │   └─ ... DataAssemblies (params, report values, interlocks)
- ├─ InstanceHierarchy  (Communication aspect) → OPC UA node bindings (ns URI + identifier)
+CAEXFile  (CAEX 2.15 @1.0.0 | CAEX 3.0 @1.1.0)   ← AutomationML container (IEC 62714)
+ ├─ InstanceHierarchy "ModuleTypePackage"        ← THE MANIFEST (fixed name; all other IH names are FREE)
+ │   └─ InternalElement : MTPSUCLib/ModuleTypePackage      ← named for the PEA type
+ │       ├─ InternalElement : MTPSUCLib/CommunicationSet   ← MANDATORY, exactly once, NO AspectSetReference
+ │       │   ├─ InternalElement : .../SourceList    → ServerAssembly/OPCUAServer (Endpoint)
+ │       │   │                                        └─ ExternalInterface : DataItem/OPCUAItem
+ │       │   │                                             (Identifier + Namespace + Access)
+ │       │   └─ InternalElement : .../InstanceList  → DataAssembly-derived IEs (RefID + bound attributes)
+ │       └─ InternalElement : «MTPSet-derived»      ← optional aspects (ServiceSet, HMISet, …)
+ │             └─ ExternalInterface → 1.1.0: MTPICLib/AspectSetReference (AspectRef → IH's GUID)
+ │                                    1.0.0: ExternalDataConnector (refURI)
+ ├─ InstanceHierarchy  (Services aspect — name free)
+ │   ├─ InternalElement : MTPServiceSUCLib/Service          ← one per module service
+ │   │   └─ InternalElement : MTPServiceSUCLib/Service/Procedure   ← operating modes/variants
+ │   └─ ... ServiceParameter / ProcedureParameter / ReportValue (RefID → DataAssembly)
  ├─ InstanceHierarchy  (HMI aspect / "Picture") → + hmi.graphml screen files
- └─ InstanceHierarchy  (Diagnosis / History / Alarms aspects)
+ └─ InstanceHierarchy  (ProcessValues / Texts / Diagnosis / Alarms aspects)
 ```
+
+> **Cross-aspect linking is by `RefID`, not by containment** (`[2658-1:2022]` §8.5 / `[2658-1:2019]` §7.4.4):
+> every `LinkedObject`-derived IE carries a `RefID` GUID, and **IEs sharing a RefID are the same modelled
+> entity**. That is how a `Service` in the Services IH reaches its `ServiceControl` DataAssembly in the
+> Communication aspect — verified in HC30 (`Stirring`: Service and ServiceControl share
+> `eafec7c5-508c-4e3f-94ab-8c9b3ccc78c6`).
+
+> **Class-path note.** Types are matched via **`RefBaseSystemUnitPath`** (InternalElement) /
+> **`RefBaseClassPath`** (ExternalInterface) / **`RefAttributeType`** (Attribute) — **never via RoleClasses,
+> never via element names.**
 
 ### 4.6 MTP 2.0 — *newly published, do not build on yet*
 
@@ -305,7 +396,7 @@ Deliberately kept light. Each component maps to a standard it must honor:
 
 | # | Component | Responsibility | Governed by |
 |---|---|---|---|
-| 1 | **MTP import & model** | Parse AML/CAEX; build in-memory model of services, procedures, comm bindings, HMI, alarms. No RoleClasses. | 2658-1/-4, IEC 62714/62424 |
+| 1 | **MTP import & model** | Parse AML/CAEX (2.15 **and** 3.0 — see §4.1); build in-memory model of services, procedures, comm bindings, HMI, alarms. **Identify types by `RefBaseSystemUnitPath`/`RefBaseClassPath`/`RefAttributeType` — never by RoleClass, never by element name.** *(Was "No RoleClasses" — wrong; corrected 2026-07-16, see §4.1.)* | 2658-1/-4 (+**-5.1**), IEC 62714/62424 |
 | 2 | **PEA registry** | Track known modules, their MTP, endpoint, and online status; assign unambiguous namespaces. | 2658-1 |
 | 3 | **OPC UA connection manager** | Client sessions per PEA; resolve namespace **by URI**; subscribe to state/report nodes; write command nodes. | IEC 62541, 2658-5 |
 | 4 | **Service / state manager** | Canonical 16-state machine per service; enforce layer priority; expose commands. | 2658-4 |
@@ -344,10 +435,31 @@ A conformance-oriented punch list for the build:
 - **Semodia** — MTPlatform (management/validation/commissioning) + MTP-ControlEngine (C++ SDK implementing 2658 behavior on Linux/Windows/BSD) + MTP-Box. `[ecosystem]`
 - **ABB System 800xA**, **Yokogawa CI Server**, **Honeywell**, **Rockwell**, **Beckhoff**, **Phoenix Contact (MTP Designer, PEA side)**. `[ecosystem]`
 
-**Open-source references (this project's peers — useful, not authoritative):**
-- **MTPPy** (TU Dresden) — PEA-side MTP generator + OPC UA server; older, legacy `opcua` lib. *Reference impl only.* `[MTPPy]`
-- **Polaris** — Node.js/TS + Angular POL backend/frontend + mtp-converter (Docker). Resolves nodes by namespace URI; supports classic + split op-mode.
-- **Recipol** — Python/PyQt6 POL; consumes AML + BatchML; resolves namespace by URI; drives the service state machine.
+**Open-source references (this project's peers — useful, NEVER authoritative).**
+**⚠ Peer standing re-assessed 2026-07-16 by measuring the MTP version each one's shipped artifact declares.**
+This ranks them **as artifact sources**; Rule 1 is unchanged — *their code is never a source of truth.*
+
+| Peer | Its shipped `.aml` declares | Standing for this project |
+|---|---|---|
+| **Recipol** — Python/PyQt6 POL; consumes AML + BatchML; resolves namespace by URI; drives the service state machine | **CAEX 3.0 · manifest 1.1.0 · `2658-4:ServiceSet` 1.0.0** (`2026-05-18-HC30_Stirring_V8.aml`, a real SIMATIC S7-1500 export) | ⭐ **The reference to go to.** Ships the **only** artifact on the current manifest **and** the **released** Blatt 4 service model → **our M1 fixture**. |
+| **MTPPy** (TU Dresden) — PEA-side MTP generator + OPC UA server; legacy `opcua` lib | CAEX 2.15 · manifest 1.0.0 · **`2658-4` v0.1.0 (pre-release draft)** | **Outdated — no longer serves the build.** Its service model predates Blatt 4:2022 (see below). Kept **only** as the 2.15/1.0.0 regression fixture, and still accessible if needed. |
+| **Polaris** — Node.js/TS + Angular POL + mtp-converter (Docker); resolves nodes by ns URI; supports classic + split op-mode | CAEX 2.15 · manifest 1.0.0 · **`2658-2`/`-3`/`-4` ALL v0.1.0** | **Most outdated of the three.** Reference/access only. |
+
+**Why MTPPy's output no longer matches the standard** (it is built to the 2658-4 **v0.1.0** draft — these are
+*measured* deviations from released `[2658-4:2022]`, and they are why this document previously carried the
+`ServiceProcedure` error):
+
+| MTPPy emits | `[2658-4:2022]` requires |
+|---|---|
+| `MTPSUCLib/ServicesSet` | `MTPServiceSUCLib/ServiceSet` (wrong library **and** name) |
+| `MTPServiceSUCLib/ServiceProcedure` | `MTPServiceSUCLib/Service/Procedure` (Table 30) |
+| `MTPDataObjectSUCLib/DataAssembly/ServiceControl` | `.../DataAssembly/**ServiceElement**/ServiceControl` (Table 13) |
+| `.../DataAssembly/OperationElement/DIntServParam` | `.../DataAssembly/ServiceElement/ParameterElement/…` (Table 20) |
+
+> **`visionforge.aml`** (in Recipol's tree) is **MTPPy-generated** (manifest 1.0.0 + 2658-4 v0.1.0) **and
+> malformed**: it declares `SchemaVersion="3.0"` + `xmlns="http://www.dke.de/CAEX"` while pointing
+> `noNamespaceSchemaLocation` at `CAEX_ClassModel_V2.15.xsd` — a 2.15 file with the 3.0 namespace injected.
+> **Not used as an M1 fixture.** `[project-notes]`
 
 > **The gap your project targets:** commercial POLs are capable but heavyweight/closed; the open-source ones are thin and rough (dev-grade UIs, brittle parsers). A modern **open-source POL with commercial-grade HMI + drag-and-drop recipes + solid logging** is a genuine, unfilled niche.
 
