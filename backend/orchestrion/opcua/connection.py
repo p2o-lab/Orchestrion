@@ -8,6 +8,7 @@ produced. Namespace-by-URI is the one thing this layer must get right (research 
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import uuid
@@ -91,7 +92,14 @@ class PeaConnection:
 
     async def connect(self) -> None:
         """Open the session and resolve every namespace URI the PEA uses."""
-        await self._client.connect()
+        try:
+            await self._client.connect()
+        except (OSError, asyncio.TimeoutError, ua.UaError) as exc:
+            # The PEA's server is unreachable/refusing (the common case when it is not
+            # running) — a normal condition the caller handles, not a crash.
+            raise OpcUaConnectionError(
+                f"could not connect to {self._url}: {exc}"
+            ) from exc
         self._connected = True
         try:
             for uri in self._pea_namespaces():

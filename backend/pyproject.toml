@@ -3,7 +3,7 @@ name = "orchestrion"
 version = "0.1.0"
 description = "Open-source Process Orchestration Layer (POL) for MTP-based modular process plants"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "asyncua", "uvicorn", "pydantic", "lxml"]
+dependencies = ["fastapi", "asyncua", "uvicorn", "pydantic", "lxml", "sqlmodel", "python-multipart"]
 
 [project.optional-dependencies]
 # httpx2 (not httpx) is what starlette's TestClient imports as of starlette 1.3.1.
