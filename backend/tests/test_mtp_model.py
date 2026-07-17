@@ -90,7 +90,20 @@ def test_a_service_reaches_its_control_by_shared_ref_id() -> None:
 
 
 def test_pea_holds_services_and_endpoints() -> None:
-    pea = Pea(type_name="No Information", mtp_version="0.0.1", endpoints=(), services=())
+    # The identification fields are required, not optional: [2658-1:2022 §12] cannot
+    # verify an MTP against a PEA without them, and Table 36 #7a makes all four
+    # mandatory in the file — so a Pea that lacks them could not have been parsed.
+    pea = Pea(
+        type_name="No Information",
+        mtp_version="0.0.1",
+        device_revision="0.0.1",
+        manufacturer_uri="https://example.invalid",
+        product_code="XYZ-1",
+        endpoints=(),
+        services=(),
+    )
 
     assert pea.services == ()
     assert pea.mtp_version == "0.0.1"
+    # [§12.1] the two the type check compares against the PEA's runtime values.
+    assert (pea.manufacturer_uri, pea.product_code) == ("https://example.invalid", "XYZ-1")

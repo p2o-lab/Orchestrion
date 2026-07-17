@@ -139,7 +139,12 @@
 - **Control/status encoding = 2658-4 Table 14** (verified): `StateCur` states (idle=16, execute=64, …), `Command` (start=4, stop=8, reset=2, …), `CommandEn` bitmask for legal transitions. One bit set for state/command; undefined commands ignored+reset by PEA. `[research §4.3]`
 - **16-state machine**, 5 priority layers (Abort > Stop > Hold > …). `[research §4.3]`
 - **Command gating:** `CommandExt` is honored **only in Automatic mode + External source**; `CommandOp` only in Operator mode. The **mode + procedure handshake precedes any command** — a PEA silently drops commands on the wrong channel. `[2658-4][research §4.3.1]`
-- **No CAEX RoleClasses** in MTP. `[research §4.1]`
+
+*(A line claiming "No CAEX RoleClasses in MTP" was deleted here on 2026-07-17: it is **false** —
+`[2658-4:2022]` Table 21 defines `MissedValueFlag` as a **RoleClass** in `MTPServiceRCLib` — and it contradicted
+the corrected rule stated above in this same section. The rule that matters is "identify types by
+`RefBaseSystemUnitPath`/`RefBaseClassPath`/`RefAttributeType`, never by RoleClasses", which is a different
+statement from "MTP has none".)*
 
 ---
 

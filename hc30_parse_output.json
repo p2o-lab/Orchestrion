@@ -1,0 +1,1365 @@
+{
+  "_source": "2026-05-18-HC30_Stirring_V8.aml",
+  "_produced_by": "orchestrion.mtp.parser.read_mtp()  (M1)",
+  "_totals": {
+    "data_objects": 10,
+    "opcua_nodes": 158,
+    "endpoints": 1,
+    "services": 1
+  },
+  "pea": {
+    "type_name": "No Information",
+    "mtp_version": "0.0.1",
+    "device_revision": "No Information",
+    "manufacturer_uri": "No Information",
+    "product_code": "No Information",
+    "endpoints": [
+      {
+        "name": "HC30",
+        "url": "opc.tcp://134.130.125.142:4840"
+      }
+    ],
+    "services": [
+      {
+        "name": "Stirring",
+        "ref_id": "eafec7c5-508c-4e3f-94ab-8c9b3ccc78c6",
+        "procedures": [
+          {
+            "procedure_id": 1,
+            "name": "HC30_Stirring_Continous",
+            "is_self_completing": false,
+            "ref_id": "98bc672d-3123-4fde-a517-1b8cde53d100"
+          },
+          {
+            "procedure_id": 2,
+            "name": "HC30_Stirring_Duration",
+            "is_self_completing": true,
+            "ref_id": "320d688e-6c0e-43c8-929c-5112ef3e6c70"
+          }
+        ],
+        "control": {
+          "class_path": "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ServiceControl",
+          "ref_id": "eafec7c5-508c-4e3f-94ab-8c9b3ccc78c6",
+          "tag_name": "Stirring",
+          "tag_description": "Stirring",
+          "nodes": {
+            "CommandEn": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandEn\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "CommandExt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandExt\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "CommandInt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandInt\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "CommandOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ConfigParamApplyEn": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyEn\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ConfigParamApplyExt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyExt\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ConfigParamApplyInt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyInt\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ConfigParamApplyOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "InteractAddInfo": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractAddInfo\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "InteractAnswerID": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractAnswerID\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "InteractQuestionID": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractQuestionID\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "OSLevel": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"OSLevel\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "PosTextID": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"PosTextID\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ProcParamApplyEn": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyEn\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ProcParamApplyExt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyExt\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ProcParamApplyInt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyInt\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ProcParamApplyOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ProcedureCur": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureCur\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ProcedureExt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureExt\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ProcedureInt": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureInt\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ProcedureOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "ProcedureReq": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureReq\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "ReportValueFreeze": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ReportValueFreeze\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "SrcChannel": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcChannel\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "SrcExtAct": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtAct\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "SrcExtAut": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtAut\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "SrcExtOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "SrcIntAct": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntAct\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "SrcIntAut": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntAut\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "SrcIntOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "StateAutAct": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutAct\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateAutAut": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutAut\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateAutOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "StateChannel": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateChannel\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateCur": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateCur\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateOffAct": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffAct\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateOffAut": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffAut\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateOffOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "StateOpAct": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpAct\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateOpAut": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpAut\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            },
+            "StateOpOp": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpOp\"",
+              "identifier_type": "xs:string",
+              "access": "READ_WRITE"
+            },
+            "WQC": {
+              "namespace": "http://www.siemens.com/simatic-s7-opcua",
+              "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"WQC\"",
+              "identifier_type": "xs:string",
+              "access": "READ"
+            }
+          },
+          "constants": {}
+        }
+      }
+    ]
+  },
+  "_all_data_objects_note": "read_mtp() returns only the Pea above; these 10 InstanceList objects are what read_instance_list() produces. Only the ServiceControl survives into Pea (via services[].control). The rest \u2014 incl. PeaInformationLabel, which \u00a712 verification needs at M2 \u2014 are currently discarded. See journal 002 \u00a711.",
+  "all_data_objects": [
+    {
+      "tag_name": "HC30N11_DB.MTPMonBinDrv_Instance",
+      "name": "HC30N11_DB.MTPMonBinDrv_Instance",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/ActiveElement/BinDrv/MonBinDrv",
+      "ref_id": "5b37f78e-85f7-4a61-a246-0f0f052c63f8",
+      "tag_description": "HC30N11_DB.MTPMonBinDrv_Instance",
+      "node_count": 43,
+      "nodes": {
+        "FwdAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "FwdCtrl": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdCtrl\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "FwdEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "FwdFbk": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdFbk\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "FwdFbkCalc": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdFbkCalc\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "FwdOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"FwdOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "Interlock": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"Interlock\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "IntlEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"IntlEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "MonDynErr": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonDynErr\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "MonDynTi": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonDynTi\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "MonEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "MonSafePos": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonSafePos\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "MonStatErr": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonStatErr\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "MonStatTi": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"MonStatTi\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "OSLevel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"OSLevel\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "PermEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"PermEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "Permit": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"Permit\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProtEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"ProtEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "Protect": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"Protect\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ResetAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"ResetAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ResetOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"ResetOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "RevAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevCtrl": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevCtrl\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevFbk": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevFbk\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevFbkCalc": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevFbkCalc\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"RevOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "SafePos": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"SafePos\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SafePosAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"SafePosAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateAutAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateAutAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateAutOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateChannel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateChannel\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOffAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOffAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOffOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateOpAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOpAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOpAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StateOpOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StopAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StopAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StopOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"StopOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "Trip": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"Trip\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"HC30N11_DB\".\"MTPMonBinDrv_Instance\".\"MTP_MonBinDrv\".\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_FlowView_F13",
+      "name": "HC30_FlowView_F13",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/IndicatorElement/AnaView",
+      "ref_id": "15db88f4-91f8-40ab-b248-cda901906dd4",
+      "tag_description": "HC30_FlowView_F13",
+      "node_count": 5,
+      "nodes": {
+        "V": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[1].\"V\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMax": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[1].\"VSclMax\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMin": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[1].\"VSclMin\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VUnit": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[1].\"VUnit\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[1].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_LevelView_L10",
+      "name": "HC30_LevelView_L10",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/IndicatorElement/AnaView",
+      "ref_id": "b962fea3-253e-454d-b192-c5762f3ba4ab",
+      "tag_description": "HC30_LevelView_L10",
+      "node_count": 5,
+      "nodes": {
+        "V": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[0].\"V\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMax": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[0].\"VSclMax\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMin": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[0].\"VSclMin\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VUnit": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[0].\"VUnit\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPAnalogOut\"[0].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_Self_Full",
+      "name": "HC30_Self_Full",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/IndicatorElement/BinView",
+      "ref_id": "259f7ce5-f0cc-4f7e-88ec-d2cd742d2872",
+      "tag_description": "HC30_Self_Full",
+      "node_count": 4,
+      "nodes": {
+        "V": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryOut\"[0].\"V\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VState0": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryOut\"[0].\"VState0\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VState1": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryOut\"[0].\"VState1\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryOut\"[0].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_Target_Full",
+      "name": "HC30_Target_Full",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/InputElement/BinProcessValueIn",
+      "ref_id": "90d0dac1-274f-4011-a075-419c3547d0cc",
+      "tag_description": "HC30_Target_Full",
+      "node_count": 5,
+      "nodes": {
+        "V": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryIn\"[0].\"V\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "VQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryIn\"[0].\"VQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "VState0": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryIn\"[0].\"VState0\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VState1": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryIn\"[0].\"VState1\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcessValues_DB\".\"MTPBinaryIn\"[0].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "PeaInformationLabel",
+      "name": "PeaInformationLabel",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/PeaElement/PeaInformationLabel",
+      "ref_id": "5db760c8-5861-4d1b-907d-bc4c58e31c72",
+      "tag_description": "PeaInformationLabel",
+      "node_count": 15,
+      "nodes": {
+        "AssetId": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"AssetId\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ComponentName": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"ComponentName\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "DeviceClass": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"DeviceClass\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "DeviceHealth": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"DeviceHealth\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "DeviceManual": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"DeviceManual\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "DeviceRevision": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"DeviceRevision\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "HardwareRevision": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"HardwareRevision\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "Manufacturer": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"Manufacturer\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ManufacturerUri": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"ManufacturerUri\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "Model": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"Model\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProductCode": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"ProductCode\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProductInstanceUri": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"ProductInstanceUri\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "RevisionCounter": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"RevisionCounter\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SerialNumber": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"SerialNumber\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SoftwareRevision": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"PeaInformationLabel\".\"SoftwareRevision\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_Duration_Stirring_Durration",
+      "name": "HC30_Duration_Stirring_Durration",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ParameterElement/AnaServParam",
+      "ref_id": "ea7f0038-04e6-4a89-8649-f4fafb555e38",
+      "tag_description": "HC30_Duration_Stirring_Durration",
+      "node_count": 35,
+      "nodes": {
+        "ApplyEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"ApplyEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ApplyExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"ApplyExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ApplyInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"ApplyInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ApplyOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"ApplyOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "OSLevel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"OSLevel\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "SrcChannel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcChannel\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcExtAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcExtAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcExtOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "SrcIntAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcIntAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcIntAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcIntAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcIntOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"SrcIntOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateAutAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateAutAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateAutAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateAutOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateChannel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateChannel\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOffAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOffAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOffOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateOpAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOpAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOpAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"StateOpOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "Sync": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"Sync\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "VExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "VFbk": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VFbk\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VMax": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VMax\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VMin": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VMin\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "VOut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VOut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VReq": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VReq\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMax": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VSclMax\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VSclMin": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VSclMin\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "VUnit": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"VUnit\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"ProcedureParameters_DB\".\"MTPAnalog\"[0].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_Stirring_Duration",
+      "name": "HC30_Stirring_Duration",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ProcedureHealthView",
+      "ref_id": "320d688e-6c0e-43c8-929c-5112ef3e6c70",
+      "tag_description": "HC30_Stirring_Duration",
+      "node_count": 2,
+      "nodes": {
+        "CommandInfo": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP_ProcedureHealthView\"[1].\"CommandInfo\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP_ProcedureHealthView\"[1].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "HC30_Stirring_Continous",
+      "name": "HC30_Stirring_Continous",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ProcedureHealthView",
+      "ref_id": "98bc672d-3123-4fde-a517-1b8cde53d100",
+      "tag_description": "HC30_Stirring_Continous",
+      "node_count": 2,
+      "nodes": {
+        "CommandInfo": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP_ProcedureHealthView\"[0].\"CommandInfo\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP_ProcedureHealthView\"[0].\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    },
+    {
+      "tag_name": "Stirring",
+      "name": "Stirring",
+      "class_path": "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ServiceControl",
+      "ref_id": "eafec7c5-508c-4e3f-94ab-8c9b3ccc78c6",
+      "tag_description": "Stirring",
+      "node_count": 42,
+      "nodes": {
+        "CommandEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "CommandExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "CommandInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "CommandOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"CommandOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ConfigParamApplyEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ConfigParamApplyExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ConfigParamApplyInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ConfigParamApplyOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ConfigParamApplyOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "InteractAddInfo": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractAddInfo\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "InteractAnswerID": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractAnswerID\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "InteractQuestionID": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"InteractQuestionID\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "OSLevel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"OSLevel\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "PosTextID": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"PosTextID\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProcParamApplyEn": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyEn\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProcParamApplyExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ProcParamApplyInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProcParamApplyOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcParamApplyOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ProcedureCur": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureCur\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProcedureExt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureExt\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ProcedureInt": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureInt\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ProcedureOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "ProcedureReq": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ProcedureReq\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "ReportValueFreeze": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"ReportValueFreeze\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "SrcChannel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcChannel\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcExtOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcExtOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "SrcIntAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcIntAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "SrcIntOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"SrcIntOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateAutAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateAutOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateAutOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateChannel": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateChannel\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateCur": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateCur\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOffOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOffOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "StateOpAct": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpAct\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpAut": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpAut\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        },
+        "StateOpOp": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"StateOpOp\"",
+          "identifier_type": "xs:string",
+          "access": "READ_WRITE"
+        },
+        "WQC": {
+          "namespace": "http://www.siemens.com/simatic-s7-opcua",
+          "identifier": "\"Stirring\".\"MTP\".\"ServiceControl\".\"WQC\"",
+          "identifier_type": "xs:string",
+          "access": "READ"
+        }
+      },
+      "constants": {}
+    }
+  ]
+}

@@ -256,9 +256,20 @@ def load_manifest(path: Path) -> Manifest:
     _check_ids_are_guids(path, root)
     module = _find_module_type_package(path, root)
 
-    # [Table 36 #7a] all four are required, not just Version. The rule says the
-    # values must be *present*; it cannot require them to be meaningful, and real
-    # vendors do ship placeholders ("No Information" throughout our HC30 fixture).
+    # [Table 36 #7a] all four are required, not just Version.
+    #
+    # ⚠ #7a imposes a SECOND requirement we deliberately do NOT enforce: "Version
+    # and DeviceRevision shall be specified in the format Major.Minor.Patch"
+    # (restated in Table 2). Our HC30 fixture violates it — DeviceRevision is the
+    # literal "No Information" — so enforcing it would reject the only conformant
+    # 1.1.0 artifact we have.
+    #
+    # This is a conscious, recorded exception to the fail-hard rule, not an
+    # oversight (user decision, 2026-07-17; see 002 §9.3c). Note it does NOT follow
+    # from the "#6 requires a Name, not a meaningful one" argument: #6 imposes no
+    # format, #7a imposes a checkable one, so "No Information" is format-violating
+    # rather than merely lazy. Revisit if a fixture with conformant values appears;
+    # §12 PEA verification cannot work against this file either way.
     identification: dict[str, str] = {}
     for name in IDENTIFICATION_ATTRIBUTES:
         value = _attribute_value(module, name)
@@ -297,6 +308,15 @@ class AspectEntry:
 
     name: str
     class_path: str
+
+    element: etree._Element
+    """The table-of-contents IE itself.
+
+    For the CommunicationSet this *is* the content — it is modelled inline (§8.3), so
+    there is no hierarchy to follow and the walk starts here. For every other aspect
+    the entry is only a pointer and the content lives in `hierarchy`.
+    """
+
     hierarchy: etree._Element | None
     """The InstanceHierarchy implementing this aspect, resolved from AspectRef.
 
@@ -327,13 +347,21 @@ def read_table_of_contents(
         if class_path == COMMUNICATION_SET_CLASS:
             # [§8.3, Figure 3] "CommunicationSet has no AspectSetReference" — it is
             # modelled inline, so there is no hierarchy to resolve.
-            entries.append(AspectEntry(name=name, class_path=class_path, hierarchy=None))
+            entries.append(
+                AspectEntry(
+                    name=name,
+                    class_path=class_path,
+                    element=element,
+                    hierarchy=None,
+                )
+            )
             continue
 
         entries.append(
             AspectEntry(
                 name=name,
                 class_path=class_path,
+                element=element,
                 hierarchy=_resolve_aspect_hierarchy(path, root, element, class_path),
             )
         )

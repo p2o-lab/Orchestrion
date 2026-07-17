@@ -367,7 +367,7 @@ CAEXFile  (CAEX 2.15 @1.0.0 | CAEX 3.0 @1.1.0)   ← AutomationML container (IEC
  │   ├─ InternalElement : MTPServiceSUCLib/Service          ← one per module service
  │   │   └─ InternalElement : MTPServiceSUCLib/Service/Procedure   ← operating modes/variants
  │   └─ ... ServiceParameter / ProcedureParameter / ReportValue (RefID → DataAssembly)
- ├─ InstanceHierarchy  (HMI aspect / "Picture") → + hmi.graphml screen files
+ ├─ InstanceHierarchy  (HMI aspect — MTPHMISUCLib: Picture, VisualObject, …)
  └─ InstanceHierarchy  (ProcessValues / Texts / Diagnosis / Alarms aspects)
 ```
 
@@ -432,7 +432,13 @@ A conformance-oriented punch list for the build:
 - [ ] Implement the **16-state service state machine** with layer priority + the 10 commands. `[2658-4][WG-2024]`
 - [ ] **OPC UA client**: resolve namespaces **by URI**, subscribe to state/report values, write commands. `[IEC 62541][2658-5]`
 - [ ] **ISA-88 recipe engine** with **BatchML** import/export; bind steps to service procedures; transition conditions on live values. `[ISA-88][RWTH-POL-2025]`
-- [ ] **Auto-generate HMI faceplates** from the HMI aspect (`Picture` + `hmi.graphml`). `[2658-2]`
+- [ ] **Auto-generate HMI faceplates** from the HMI aspect — its own IH of `MTPHMISUCLib` classes (`Picture`,
+  `VisualObject`, `TopologyObject`, `PortObject`, `Connection`), reached from the manifest ToC via an `HMISet`
+  entry. Symbols bind to live data by **`RefID` → DataAssembly**, so this **cannot precede M1/M2**. `[2658-2:2019]` §1
+  *(Corrected 2026-07-17: this line previously said "`Picture` + `hmi.graphml`". **No such file exists** —
+  `graphml` occurs 0× in Blatt 1 (both editions), 2, 3, 4, 5, 5.1 and 0× in a real vendor MTP. It was the last
+  surviving copy of that unsourced claim, and the most dangerous: a checklist entry would have had someone build
+  a reader for a format no standard defines.)*
 - [ ] **Alarm aggregation** (design against 2658-6 draft; keep it swappable). `[2658-6]`
 - [ ] **Historian + audit log** of values, transitions, operator/recipe actions.
 - [ ] **Extensibility seam** for MTP 2.0 profiles + IEC 63280. `[MTP2.0]`

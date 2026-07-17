@@ -184,5 +184,27 @@ class Pea:
     """[Table 36 #7a] the MTP *instance* version — the vendor's file revision.
     Not the manifest aspect model version (1.1.0)."""
 
+    # ── Identification — [2658-1:2022] §12, the MTP side of the verification ──────
+    #
+    # §12 checks that an MTP actually belongs to the PEA it is pointed at, by
+    # comparing these against the *runtime* values the PEA serves from its
+    # PeaInformationLabel (Table 31, same attribute names). They live on Pea rather
+    # than staying in caex.Manifest because §12 is a runtime concern (M2), and
+    # nothing above this module is allowed to see XML.
+
+    device_revision: str
+    """[Table 36 #7a] Major.Minor.Patch. §12.3: MTP↔PEA version *compatibility* is
+    determined by this field.
+
+    ⚠ #7a's format is deliberately not enforced (journal 002 §9.3c) and HC30 ships
+    "No Information" here — so §12.3 cannot succeed against that fixture."""
+
+    manufacturer_uri: str
+    """[Table 36 #7a / Table 2] §12.1: with `product_code`, uniquely identifies the
+    PEA *type*; verified by equality against the runtime value."""
+
+    product_code: str
+    """[Table 36 #7a] §12.1: the other half of the type check."""
+
     endpoints: tuple[Endpoint, ...]
     services: tuple[Service, ...]
