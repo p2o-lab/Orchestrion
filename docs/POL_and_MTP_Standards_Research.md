@@ -201,7 +201,20 @@ The full minimal standards set for a v1 POL is now settled. **Paid standards are
   emits `Service/Procedure` and matches the standard. This doc had absorbed the **peer's draft** — exactly what
   `[MTPPy]` is labelled *illustrative, not authoritative* to prevent. `[2658-4:2022][project-notes]`
   *(Internal Python class naming remains a free choice; the **matched CAEX path** must be the standard's.)*
-- **HMI** is split: the *operation-screen hierarchy* ("Picture") lives inside the manifest; individual screen descriptions are exchangeable files (`hmi.graphml`) in the MTP folder structure — so the POL can auto-generate the module's faceplates. `[2658-1:2019][2658-2]`
+- **HMI** is a normal aspect: its own IH, reached from the manifest ToC via an `HMISet` entry (`MTPHMISUCLib/`
+  classes — `Picture`, `VisualObject`, `TopologyObject`, `PortObject`, `Connection/Pipe`), so the POL can
+  auto-generate **the module's own faceplate**. `[2658-2:2019]` §1 · *(observed in HC30: `2658-2:HmiSet` v1.0.0,
+  IH `Pictures`)*
+  - **⚠ Correction 2026-07-16:** this bullet previously claimed screen descriptions ship as exchangeable
+    **`hmi.graphml`** files in the MTP folder structure, cited to `[2658-1:2019][2658-2]`. **Neither source
+    supports it** — `graphml` occurs **0×** in Blatt 1 (both editions), 2, 3, 4, 5 and 5.1, and **0×** in a real
+    vendor MTP (HC30). Claim removed as unsourced.
+  - **Blatt 2 covers only the *static* side**: *"The objects and structures for the **dynamization** of HMIs are
+    specified in **Part 3**"* (`[2658-2:2019]` §1). Symbols reach live data through the **`RefID` → DataAssembly**
+    link — *"the dynamic symbol uses this to reference the associated DataAssembly instance"*. **The HMI aspect
+    is therefore structurally downstream of the data/binding layer** and cannot precede it.
+  - Scope note: Blatt 2 is *"HMI **for process modules**"* — the **per-module mimic**. A **plant-wide overview of
+    all PEAs is not in any MTP**; that is the POL's own HMI to design. `[2658-2:2019]` §1
 
 > **POL requirement:** parse an AML/CAEX file; locate the `ModuleTypePackage` IH; follow it to the `Services`, `Communication`, `HMI`, data-object, diagnostics/history, and alarm aspects; and build an internal model *without* relying on RoleClasses.
 

@@ -42,7 +42,19 @@
 
 **Explicit non-goals for v1** (come *after* the spine works):
 - Drag-and-drop recipe builder + recipe engine (ISA-88/BatchML).
-- Auto-generated faceplates from the HMI aspect (Blatt 2).
+- Auto-generated faceplates from the HMI aspect (Blatt 2) — **the "true" MTP HMI. Planned for later, not dropped.**
+  *(Verified against `[2658-2:2019]` on 2026-07-16 — this deferral is evidenced, not an assumption:)*
+  - **v1's HMI is the React app** — plant overview, PEA list, service cards with live `StateCur`, command
+    buttons, log panel. **That is in scope** (§3, §4) and is the commercial-grade surface. **For now we trust
+    React only.**
+  - **A plant-wide overview of all PEAs exists in no MTP** — Blatt 2 is *"HMI **for process modules**"* (§1),
+    i.e. the vendor's **per-module mimic**. Our overview is ours to design regardless.
+  - **Blatt 2 is the *static* side only** and delegates *"the **dynamization** of HMIs … to **Part 3**"* (§1).
+    Its symbols reach live values via **`RefID` → DataAssembly** → OPC UA node — the exact chain M1 parses and
+    M2 connects. **So the HMI aspect is structurally downstream and cannot precede M2.**
+  - **Adding it later is cheap by design:** aspects are independent IHs (`[2658-1:2022]` §8.1 — *"aspects can be
+    gradually included"*), so HMI slots in as one more `MTPSet` entry + aspect parser. **No rewrite of the
+    manifest, comm, or service layers.** HC30 already ships the data (`2658-2:HmiSet` v1.0.0, IH `Pictures`).
 - Alarm management (Blatt 6/7).
 - Multi-PEA orchestration, MES/ERP northbound, MTP 2.0 profiles.
 
