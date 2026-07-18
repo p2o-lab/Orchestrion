@@ -5,7 +5,7 @@ import type { PeaSummary } from '../api/types'
 import { useWorkspace } from '../workspace'
 import { Button, Card, Input, Modal, Spinner } from '../ui/primitives'
 import { Icon } from '../ui/icons'
-import { stateDot } from '../ui/state'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { ImportDialog } from './ImportDialog'
 
 interface LiveInfo {
@@ -27,6 +27,11 @@ export function ProjectView() {
   const [renamingPea, setRenamingPea] = useState<PeaSummary | null>(null)
   const [draftName, setDraftName] = useState('')
   const [draftDesc, setDraftDesc] = useState('')
+  const [confirming, setConfirming] = useState<{
+    title: string
+    message: string
+    onConfirm: () => Promise<void>
+  } | null>(null)
 
   const loadPeas = useCallback(async () => {
     const list = await api.listPeas(id)
@@ -57,17 +62,28 @@ export function ProjectView() {
     await reload()
   }
 
-  async function deleteProject() {
-    if (!confirm(`Delete project "${project?.name}" and all its PEAs?`)) return
-    await api.deleteProject(id)
-    await reload()
-    navigate('/')
+  function deleteProject() {
+    setConfirming({
+      title: 'Delete project',
+      message: `"${project?.name}" and all of its PEAs will be permanently removed.`,
+      onConfirm: async () => {
+        await api.deleteProject(id)
+        await reload()
+        navigate('/')
+      },
+    })
   }
 
-  async function deletePea(pea: PeaSummary) {
-    if (!confirm(`Delete PEA "${pea.name}"?`)) return
-    await api.deletePea(pea.id)
-    await afterImport()
+  function deletePea(pea: PeaSummary) {
+    setConfirming({
+      title: 'Delete PEA',
+      message: `"${pea.name}" will be permanently removed from this project.`,
+      onConfirm: async () => {
+        await api.deletePea(pea.id)
+        await afterImport()
+        setConfirming(null)
+      },
+    })
   }
 
   async function saveProject() {
@@ -177,8 +193,12 @@ export function ProjectView() {
                     </span>
                     <div className="mt-4 flex items-center gap-2">
                       <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${stateDot(info.connected, info.state)} ${info.connected ? 'pulse-dot' : ''}`}
-                        title={info.connected ? info.state ?? 'connected' : 'disconnected'}
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          info.connected
+                            ? 'bg-st-execute shadow-[0_0_8px_1px] shadow-st-execute pulse-dot'
+                            : 'bg-st-stopped'
+                        }`}
+                        title={info.connected ? `connected · ${info.state ?? 'live'}` : 'disconnected'}
                       />
                       <span className="truncate text-base font-semibold text-ink">{pea.name}</span>
                     </div>
@@ -216,6 +236,15 @@ export function ProjectView() {
             <Button variant="primary" onClick={saveProject} disabled={!draftName.trim()}>Save</Button>
           </div>
         </Modal>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title={confirming.title}
+          message={confirming.message}
+          onConfirm={confirming.onConfirm}
+          onClose={() => setConfirming(null)}
+        />
       )}
 
       {renamingPea && (

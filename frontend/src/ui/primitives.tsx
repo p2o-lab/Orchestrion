@@ -84,8 +84,8 @@ export function Modal({
     >
       <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <Card className="p-6 animate-fade-in">
-          <h2 className="text-lg text-ink">{title}</h2>
-          <div className="mt-4">{children}</div>
+          {title && <h2 className="text-lg text-ink">{title}</h2>}
+          <div className={title ? 'mt-4' : ''}>{children}</div>
         </Card>
       </div>
     </div>
