@@ -31,3 +31,17 @@ export function stateStyle(name: string | undefined): StateStyle {
   if (TRANSIENT_STATES.has(name)) return { cls: TRANSIENT, transient: true }
   return { cls: STABLE[name] ?? 'text-dim bg-white/5 border-edge-strong', transient: false }
 }
+
+// Just the fill colour for a small status dot (literal classes for Tailwind's scanner).
+const DOT: Record<string, string> = {
+  IDLE: 'bg-st-idle', EXECUTE: 'bg-st-execute', PAUSED: 'bg-st-paused',
+  HELD: 'bg-st-held', COMPLETED: 'bg-st-completed', STOPPED: 'bg-st-stopped',
+  ABORTED: 'bg-st-aborted',
+}
+
+export function stateDot(connected: boolean, state: string | undefined): string {
+  if (!connected) return 'bg-st-stopped'
+  if (!state) return 'bg-accent'
+  if (TRANSIENT_STATES.has(state)) return 'bg-st-transient'
+  return DOT[state] ?? 'bg-st-idle'
+}

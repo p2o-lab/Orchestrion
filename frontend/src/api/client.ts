@@ -4,6 +4,12 @@
 
 import type { PeaDetail, PeaSummary, Project } from './types'
 
+export interface LiveSnapshot {
+  connected: boolean
+  states: Record<string, string>
+  command_en: Record<string, string[]>
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly body?: unknown
@@ -36,14 +42,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   listProjects: () => request<Project[]>('/api/projects'),
-  createProject: (name: string) =>
-    request<Project>('/api/projects', { method: 'POST', body: JSON.stringify({ name }) }),
-  renameProject: (id: number, name: string) =>
-    request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  createProject: (name: string, description = '') =>
+    request<Project>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+  updateProject: (id: number, patch: { name?: string; description?: string }) =>
+    request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   listPeas: (projectId: number) => request<PeaSummary[]>(`/api/projects/${projectId}/peas`),
   getPea: (peaId: number) => request<PeaDetail>(`/api/peas/${peaId}`),
+
+  // Live connection (persistent, backend-owned; survives navigation).
+  liveStatus: (peaId: number) => request<LiveSnapshot>(`/api/peas/${peaId}/live`),
+  connectPea: (peaId: number) =>
+    request<LiveSnapshot>(`/api/peas/${peaId}/connect`, { method: 'POST' }),
+  disconnectPea: (peaId: number) =>
+    request<LiveSnapshot>(`/api/peas/${peaId}/disconnect`, { method: 'POST' }),
   renamePea: (peaId: number, name: string) =>
     request<PeaSummary>(`/api/peas/${peaId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deletePea: (peaId: number) => request<void>(`/api/peas/${peaId}`, { method: 'DELETE' }),

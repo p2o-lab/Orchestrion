@@ -68,3 +68,6 @@ logs/
 *.db
 # Runtime SQLite database
 backend/orchestrion.db
+
+# transient test PEA files
+backend/virtual_pea/_ws_test_*.aml

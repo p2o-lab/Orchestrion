@@ -1,15 +1,16 @@
-"""PeaRegistry — live connection + snapshot + listener fan-out, vs the VirtualPEA."""
+"""PeaRegistry — persistent connect, snapshot, and health-drop on PEA death.
+
+Runs everything on ONE asyncio loop (asyncio.run) with the VirtualPEA started and
+stopped in-loop — deterministic, no TestClient/WebSocket/cross-loop fragility.
+"""
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 
-from asyncua import Client, ua
-
 from orchestrion.mtp.parser import read_mtp
 from orchestrion.opcua.registry import PeaRegistry
-from orchestrion.state.codes import Command
 from virtual_pea.server import VirtualPEA
 
 LOCAL_AML = Path(__file__).parent.parent / "virtual_pea" / "HC30_Stirring_V8_local.aml"
@@ -24,24 +25,8 @@ def _aml_on_port(tmp_path: Path, port: int) -> Path:
     return dst
 
 
-async def _drive_to_execute(url: str, pea) -> None:
-    control = pea.services[0].control
-    async with Client(url) as drv:
-        async def write(attr, value, vt):
-            n = control.nodes[attr]
-            idx = await drv.get_namespace_index(n.namespace)
-            node = drv.get_node(ua.NodeId(n.identifier, idx, ua.NodeIdType.String))
-            await node.write_value(ua.DataValue(ua.Variant(value, vt)))
-
-        await write("StateAutOp", True, ua.VariantType.Boolean); await asyncio.sleep(0.15)
-        await write("SrcExtOp", True, ua.VariantType.Boolean); await asyncio.sleep(0.15)
-        await write("ProcedureExt", 1, ua.VariantType.UInt32); await asyncio.sleep(0.15)
-        await write("CommandExt", int(Command.START), ua.VariantType.UInt32)
-        await asyncio.sleep(0.15)
-
-
-def test_registry_holds_live_state_and_fans_out(tmp_path):
-    aml = _aml_on_port(tmp_path, 48094)
+def test_connect_snapshot_and_persist(tmp_path):
+    aml = _aml_on_port(tmp_path, 48110)
 
     async def scenario():
         server = VirtualPEA(aml)
@@ -51,32 +36,25 @@ def test_registry_holds_live_state_and_fans_out(tmp_path):
         try:
             pea = read_mtp(aml)
             snap = await registry.connect(1, pea)
-            assert snap.states["Stirring"] == "IDLE"          # initial snapshot
+            assert snap.states["Stirring"] == "IDLE"
             assert registry.is_connected(1)
 
-            queue: asyncio.Queue = asyncio.Queue()
-            registry.add_listener(1, queue)
+            # a second connect is idempotent (reuses the live connection)
+            await registry.connect(1, pea)
+            assert registry.is_connected(1)
 
-            await _drive_to_execute(pea.endpoints[0].url, pea)
-
-            # the listener was pushed the change, and the snapshot reflects it
-            seen = []
-            while not queue.empty():
-                seen.append(queue.get_nowait())
-            states = [m["state"] for m in seen if "state" in m]
-            assert "EXECUTE" in states
-            assert registry.snapshot(1).states["Stirring"] == "EXECUTE"
-        finally:
             await registry.disconnect(1)
             assert not registry.is_connected(1)
+        finally:
+            await registry.shutdown()
             await server.stop()
         return True
 
     assert asyncio.run(scenario())
 
 
-def test_connect_is_idempotent(tmp_path):
-    aml = _aml_on_port(tmp_path, 48095)
+def test_health_loop_drops_a_dead_connection(tmp_path):
+    aml = _aml_on_port(tmp_path, 48111)
 
     async def scenario():
         server = VirtualPEA(aml)
@@ -84,13 +62,18 @@ def test_connect_is_idempotent(tmp_path):
         await server.start()
         registry = PeaRegistry()
         try:
-            pea = read_mtp(aml)
-            await registry.connect(1, pea)
-            await registry.connect(1, pea)      # second call is a no-op, no raise
+            await registry.connect(1, read_mtp(aml))
             assert registry.is_connected(1)
+
+            await server.stop()  # the PEA goes away
+            # the background health loop (2s) must notice and drop the entry
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                if not registry.is_connected(1):
+                    break
+            assert not registry.is_connected(1)
         finally:
             await registry.shutdown()
-            await server.stop()
         return True
 
     assert asyncio.run(scenario())

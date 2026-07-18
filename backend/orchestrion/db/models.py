@@ -24,6 +24,7 @@ class Project(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    description: str = Field(default="")
     created_at: datetime = Field(default_factory=_utcnow)
 
     peas: list["Pea"] = Relationship(

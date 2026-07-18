@@ -1,32 +1,30 @@
-"""Runtime registry of live PEA connections — the bridge from OPC UA to the UI.
+"""Persistent live PEA connections — started/stopped by explicit connect/disconnect.
 
-Persistence (`orchestrion.db`) holds the *static* PEA (its MTP). This holds the
-*live* one: an open `PeaConnection`, the latest decoded state per service, and the set
-of listeners (WebSockets) to push changes to. Keyed by the DB `pea_id`, it lives for
-the app's lifetime on the single asyncio loop that also runs the OPC UA subscriptions.
-
-The subscription callback is synchronous (asyncua calls it); it updates the snapshot
-and fans out to each listener's `asyncio.Queue` via `put_nowait` — which is safe to
-call from that context — so no await happens inside the callback.
+A connection lives here for as long as it is *intended* to (until the user disconnects
+or the PEA dies), independent of any WebSocket viewer — so navigating away and back
+finds it still connected. A per-entry background task pings the server on an interval;
+if the PEA has gone away the entry is dropped and its viewers are told, so the status
+is always the real one (this is what the earlier, buggy shared connection got wrong).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 
 from orchestrion.mtp.model import Pea
 from orchestrion.opcua.connection import PeaConnection
 from orchestrion.state.codes import Command, ServiceState
 
+_HEALTH_INTERVAL = 2.0
+
 
 @dataclass
 class LiveState:
-    """A serialisable snapshot of one PEA's live service states."""
-
     connected: bool
-    states: dict[str, str]                 # service name -> ServiceState.name
-    command_en: dict[str, list[str]]       # service name -> enabled Command names
+    states: dict[str, str]
+    command_en: dict[str, list[str]]
 
 
 @dataclass
@@ -36,6 +34,7 @@ class _Entry:
     command_en: dict[str, frozenset[Command]] = field(default_factory=dict)
     listeners: set[asyncio.Queue] = field(default_factory=set)
     subscription: object | None = None
+    health_task: asyncio.Task | None = None
 
     def snapshot(self) -> LiveState:
         return LiveState(
@@ -44,26 +43,25 @@ class _Entry:
             command_en={s: [c.name for c in cs] for s, cs in self.command_en.items()},
         )
 
-    def _broadcast(self, message: dict) -> None:
+    def broadcast(self, message: dict) -> None:
         for queue in self.listeners:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(message)
-            except asyncio.QueueFull:
-                pass          # a slow listener drops updates rather than blocking
 
-    def on_state(self, service_name: str, state: ServiceState) -> None:
-        self.states[service_name] = state
-        self._broadcast({"service": service_name, "state": state.name})
+    def on_state(self, service: str, state: ServiceState) -> None:
+        self.states[service] = state
+        self.broadcast({"kind": "state", "service": service, "state": state.name})
 
-    def on_command_en(self, service_name: str, commands: frozenset[Command]) -> None:
-        self.command_en[service_name] = commands
-        self._broadcast(
-            {"service": service_name, "command_en": [c.name for c in commands]}
+    def on_command_en(self, service: str, commands: frozenset[Command]) -> None:
+        self.command_en[service] = commands
+        self.broadcast(
+            {"kind": "command_en", "service": service,
+             "command_en": [c.name for c in commands]}
         )
 
 
 class PeaRegistry:
-    """Manages live connections for imported PEAs, keyed by DB pea_id."""
+    """Persistent OPC UA connections keyed by DB pea_id."""
 
     def __init__(self) -> None:
         self._entries: dict[int, _Entry] = {}
@@ -71,33 +69,33 @@ class PeaRegistry:
     def is_connected(self, pea_id: int) -> bool:
         return pea_id in self._entries
 
+    def snapshot(self, pea_id: int) -> LiveState | None:
+        entry = self._entries.get(pea_id)
+        return entry.snapshot() if entry is not None else None
+
     async def connect(self, pea_id: int, pea: Pea) -> LiveState:
-        """Open a session to `pea` (idempotent) and subscribe to its live state."""
-        if pea_id in self._entries:
-            return self._entries[pea_id].snapshot()
+        """Establish (or reuse a live) persistent connection. Raises if unreachable."""
+        entry = self._entries.get(pea_id)
+        if entry is not None:
+            if await entry.connection.is_alive():
+                return entry.snapshot()
+            await self._drop(pea_id)  # stale/dead -> replace with a fresh one
 
         connection = PeaConnection(pea)
-        await connection.connect()
+        await connection.connect()  # OpcUaConnectionError if the PEA is unreachable
         entry = _Entry(connection=connection)
-        # subscribe_service_state delivers the initial value of each node, so the
-        # snapshot is populated before this returns.
         entry.subscription = await connection.subscribe_service_state(
             entry.on_state, on_command_en=entry.on_command_en
         )
+        entry.health_task = asyncio.create_task(self._health_loop(pea_id))
         self._entries[pea_id] = entry
         return entry.snapshot()
 
     async def disconnect(self, pea_id: int) -> None:
-        entry = self._entries.pop(pea_id, None)
-        if entry is None:
-            return
-        if entry.subscription is not None:
-            await entry.subscription.delete()
-        await entry.connection.disconnect()
-
-    def snapshot(self, pea_id: int) -> LiveState | None:
         entry = self._entries.get(pea_id)
-        return entry.snapshot() if entry is not None else None
+        if entry is not None and entry.health_task is not None:
+            entry.health_task.cancel()
+        await self._drop(pea_id)
 
     def add_listener(self, pea_id: int, queue: asyncio.Queue) -> None:
         entry = self._entries.get(pea_id)
@@ -112,3 +110,30 @@ class PeaRegistry:
     async def shutdown(self) -> None:
         for pea_id in list(self._entries):
             await self.disconnect(pea_id)
+
+    # ── internals ────────────────────────────────────────────────────────────
+
+    async def _health_loop(self, pea_id: int) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            while True:
+                await asyncio.sleep(_HEALTH_INTERVAL)
+                entry = self._entries.get(pea_id)
+                if entry is None:
+                    return
+                if not await entry.connection.is_alive():
+                    entry.broadcast({"kind": "closed", "detail": "connection to the PEA was lost"})
+                    self._entries.pop(pea_id, None)
+                    await self._teardown(entry)  # not disconnect(): don't cancel self
+                    return
+
+    async def _drop(self, pea_id: int) -> None:
+        entry = self._entries.pop(pea_id, None)
+        if entry is not None:
+            await self._teardown(entry)
+
+    @staticmethod
+    async def _teardown(entry: _Entry) -> None:
+        if entry.subscription is not None:
+            with contextlib.suppress(Exception):
+                await entry.subscription.delete()
+        await entry.connection.disconnect()

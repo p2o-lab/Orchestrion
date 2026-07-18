@@ -113,8 +113,29 @@ class PeaConnection:
 
     async def disconnect(self) -> None:
         if self._connected:
-            await self._client.disconnect()
             self._connected = False
+            try:
+                await self._client.disconnect()
+            except Exception:  # noqa: BLE001 — the server may already be gone
+                pass
+
+    async def is_alive(self) -> bool:
+        """A real round-trip to the server — detects a PEA that has gone away.
+
+        Reads the standard Server/ServerStatus/State node (ns0 i=2259), time-bounded
+        so a half-open socket can never hang the caller; any failure or timeout means
+        the OPC UA session is dead.
+        """
+        if not self._connected:
+            return False
+        try:
+            await asyncio.wait_for(
+                self._client.get_node(ua.NodeId(2259, 0)).read_value(), timeout=3.0
+            )
+            return True
+        except (Exception, asyncio.TimeoutError):  # noqa: BLE001
+            self._connected = False
+            return False
 
     async def __aenter__(self) -> "PeaConnection":
         await self.connect()
@@ -228,6 +249,11 @@ class _StateHandler:
 
     def register(self, nodeid: ua.NodeId, service_name: str, kind: str) -> None:
         self._routes[nodeid.to_string()] = (service_name, kind)
+
+    def status_change_notification(self, status) -> None:
+        # asyncua calls this on subscription status changes; the WS layer detects a
+        # lost connection via its own liveness check, so this is a quiet no-op.
+        pass
 
     def datachange_notification(self, node, value, data) -> None:
         route = self._routes.get(node.nodeid.to_string())

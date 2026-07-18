@@ -4,7 +4,14 @@ import { api } from '../api/client'
 import type { PeaSummary } from '../api/types'
 import { useWorkspace } from '../workspace'
 import { Button, Card, Input, Modal, Spinner } from '../ui/primitives'
+import { Icon } from '../ui/icons'
+import { stateDot } from '../ui/state'
 import { ImportDialog } from './ImportDialog'
+
+interface LiveInfo {
+  connected: boolean
+  state?: string
+}
 
 export function ProjectView() {
   const { projectId } = useParams()
@@ -14,22 +21,40 @@ export function ProjectView() {
   const project = projects.find((p) => p.id === id)
 
   const [peas, setPeas] = useState<PeaSummary[] | null>(null)
+  const [liveByPea, setLiveByPea] = useState<Record<number, LiveInfo>>({})
   const [importing, setImporting] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const [newName, setNewName] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [renamingPea, setRenamingPea] = useState<PeaSummary | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [draftDesc, setDraftDesc] = useState('')
 
   const loadPeas = useCallback(async () => {
-    setPeas(await api.listPeas(id))
+    const list = await api.listPeas(id)
+    setPeas(list)
+    // Reflect each PEA's real backend connection state on its card (dot colour).
+    const entries = await Promise.all(
+      list.map(async (p) => {
+        try {
+          const s = await api.liveStatus(p.id)
+          const state = Object.values(s.states)[0]
+          return [p.id, { connected: s.connected, state }] as const
+        } catch {
+          return [p.id, { connected: false }] as const
+        }
+      }),
+    )
+    setLiveByPea(Object.fromEntries(entries))
   }, [id])
 
   useEffect(() => {
     setPeas(null)
+    setLiveByPea({})
     loadPeas().catch(() => setPeas([]))
   }, [loadPeas])
 
   async function afterImport() {
     await loadPeas()
-    await reload() // pea_count in the sidebar
+    await reload()
   }
 
   async function deleteProject() {
@@ -45,85 +70,161 @@ export function ProjectView() {
     await afterImport()
   }
 
-  async function renameProject() {
-    if (!newName.trim()) return
-    await api.renameProject(id, newName.trim())
+  async function saveProject() {
+    if (!draftName.trim()) return
+    await api.updateProject(id, { name: draftName.trim(), description: draftDesc.trim() })
     await reload()
-    setRenaming(false)
+    setEditing(false)
+  }
+
+  async function renamePea() {
+    if (!renamingPea || !draftName.trim()) return
+    await api.renamePea(renamingPea.id, draftName.trim())
+    setRenamingPea(null)
+    await loadPeas()
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-10 py-9">
+    <div className="w-full px-10 py-9">
       {/* header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4 animate-fade-in">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2 text-xs text-faint">
+            <Link to="/" className="transition hover:text-dim">Workspace</Link>
+            <Icon name="chevron" size={13} />
+            <span>Project</span>
+          </div>
           <h1 className="text-2xl text-ink">{project?.name ?? '…'}</h1>
-          <p className="mt-1 text-sm text-faint">Plant configuration · {peas?.length ?? 0} equipment modules</p>
+          {project?.description ? (
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-dim">{project.description}</p>
+          ) : (
+            <button
+              onClick={() => { setDraftName(project?.name ?? ''); setDraftDesc(''); setEditing(true) }}
+              className="mt-1.5 text-sm text-faint transition hover:text-dim"
+            >
+              + Add a description
+            </button>
+          )}
+          <p className="mt-2 text-xs text-faint">
+            {peas?.length ?? 0} equipment module{peas?.length === 1 ? '' : 's'}
+          </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" small onClick={() => { setNewName(project?.name ?? ''); setRenaming(true) }}>
-            Rename
+          <Button variant="ghost" small onClick={() => { setDraftName(project?.name ?? ''); setDraftDesc(project?.description ?? ''); setEditing(true) }}>
+            <Icon name="pencil" size={15} /> Edit
           </Button>
-          <Button variant="danger" small onClick={deleteProject}>Delete</Button>
-          <Button variant="primary" onClick={() => setImporting(true)}>+ Import PEA</Button>
+          <Button variant="danger" small onClick={deleteProject}>
+            <Icon name="trash" size={15} /> Delete
+          </Button>
+          <Button variant="primary" onClick={() => setImporting(true)}>
+            <Icon name="plus" size={16} /> Import PEA
+          </Button>
         </div>
       </div>
 
-      {/* tabs (roadmap) */}
-      <div className="mt-6 flex items-center gap-6 border-b border-edge">
-        <span className="-mb-px border-b-2 border-accent pb-2.5 text-sm font-medium text-ink">Equipment</span>
-        <span className="pb-2.5 text-sm text-faint" title="Coming later">Recipes · soon</span>
+      {/* tabs */}
+      <div className="mt-6 flex items-center gap-1 border-b border-edge">
+        <span className="-mb-px flex items-center gap-2 border-b-2 border-accent px-1 pb-3 text-sm font-medium text-ink">
+          <Icon name="module" size={16} /> Equipment
+        </span>
+        <span className="ml-4 flex items-center gap-2 px-1 pb-3 text-sm text-faint" title="Coming later">
+          <Icon name="recipe" size={16} /> Recipes
+          <span className="rounded-full bg-white/6 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">soon</span>
+        </span>
       </div>
 
       {/* PEA grid */}
       {peas === null ? (
         <div className="grid place-items-center py-24"><Spinner className="h-6 w-6" /></div>
       ) : peas.length === 0 ? (
-        <Card className="mt-8 p-10 text-center">
+        <Card className="mt-8 flex flex-col items-center gap-4 p-14 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-2xl bg-accent/12 text-accent">
+            <Icon name="module" size={26} />
+          </span>
           <p className="text-dim">No PEAs imported yet.</p>
-          <div className="mt-4 flex justify-center">
-            <Button variant="primary" onClick={() => setImporting(true)}>+ Import your first PEA</Button>
-          </div>
+          <Button variant="primary" onClick={() => setImporting(true)}>
+            <Icon name="plus" size={16} /> Import your first PEA
+          </Button>
         </Card>
       ) : (
-        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {peas.map((pea) => (
-            <Card key={pea.id} className="group relative p-5 transition hover:border-accent/40">
-              <Link to={`/projects/${id}/peas/${pea.id}`} className="block">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-st-stopped" />
-                  <span className="truncate text-base font-semibold text-ink">{pea.name}</span>
-                </div>
-                <div className="mt-3 space-y-1.5 text-xs">
-                  <div className="truncate font-mono text-dim">{pea.endpoint_url || '—'}</div>
-                  <div className="truncate text-faint">{pea.aml_filename}</div>
-                </div>
-                <div className="mt-4 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
-                  Open control view →
-                </div>
-              </Link>
-              <button
-                onClick={() => deletePea(pea)}
-                className="absolute right-3 top-3 hidden rounded-md px-2 py-1 text-xs text-faint transition hover:bg-white/5 hover:text-danger group-hover:block"
-                title="Delete PEA"
-              >
-                ✕
-              </button>
-            </Card>
-          ))}
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {peas.map((pea, i) => {
+            const info = liveByPea[pea.id] ?? { connected: false }
+            return (
+              <div key={pea.id} className="animate-rise" style={{ animationDelay: `${i * 45}ms` }}>
+                <Card className="edge-top-accent group relative overflow-hidden p-5 transition duration-200 hover:-translate-y-1 hover:border-accent/40 hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6)]">
+                  {/* hover actions (top-right) — no longer collide with the state dot */}
+                  <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition group-hover:opacity-100">
+                    <button
+                      onClick={() => { setRenamingPea(pea); setDraftName(pea.name) }}
+                      className="grid h-7 w-7 place-items-center rounded-md text-faint transition hover:bg-white/8 hover:text-accent"
+                      title="Rename PEA"
+                    >
+                      <Icon name="pencil" size={15} />
+                    </button>
+                    <button
+                      onClick={() => deletePea(pea)}
+                      className="grid h-7 w-7 place-items-center rounded-md text-faint transition hover:bg-white/8 hover:text-danger"
+                      title="Delete PEA"
+                    >
+                      <Icon name="trash" size={15} />
+                    </button>
+                  </div>
+
+                  <Link to={`/projects/${id}/peas/${pea.id}`} className="block">
+                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/12 text-accent transition group-hover:bg-accent/20">
+                      <Icon name="module" size={20} />
+                    </span>
+                    <div className="mt-4 flex items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${stateDot(info.connected, info.state)} ${info.connected ? 'pulse-dot' : ''}`}
+                        title={info.connected ? info.state ?? 'connected' : 'disconnected'}
+                      />
+                      <span className="truncate text-base font-semibold text-ink">{pea.name}</span>
+                    </div>
+                    <div className="mt-2 truncate font-mono text-xs text-dim">{pea.endpoint_url || '—'}</div>
+                    <div className="mt-1 truncate text-xs text-faint">{pea.aml_filename}</div>
+                    <div className="mt-4 flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
+                      Open control view <Icon name="chevron" size={14} />
+                    </div>
+                  </Link>
+                </Card>
+              </div>
+            )
+          })}
         </div>
       )}
 
       {importing && (
         <ImportDialog projectId={id} onClose={() => setImporting(false)} onImported={afterImport} />
       )}
-      {renaming && (
-        <Modal title="Rename project" onClose={() => setRenaming(false)}>
-          <Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
-                 onKeyDown={(e) => e.key === 'Enter' && renameProject()} />
+
+      {editing && (
+        <Modal title="Edit project" onClose={() => setEditing(false)}>
+          <label className="mb-1.5 block text-xs font-medium text-dim">Name</label>
+          <Input autoFocus value={draftName} onChange={(e) => setDraftName(e.target.value)} />
+          <label className="mb-1.5 mt-4 block text-xs font-medium text-dim">Description</label>
+          <textarea
+            className="w-full resize-none rounded-lg border border-edge-strong bg-elev px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-2 focus:ring-accent/20"
+            rows={3}
+            placeholder="What this plant configuration is for…"
+            value={draftDesc}
+            onChange={(e) => setDraftDesc(e.target.value)}
+          />
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setRenaming(false)}>Cancel</Button>
-            <Button variant="primary" onClick={renameProject} disabled={!newName.trim()}>Save</Button>
+            <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button variant="primary" onClick={saveProject} disabled={!draftName.trim()}>Save</Button>
+          </div>
+        </Modal>
+      )}
+
+      {renamingPea && (
+        <Modal title="Rename PEA" onClose={() => setRenamingPea(null)}>
+          <Input autoFocus value={draftName} onChange={(e) => setDraftName(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Enter' && renamePea()} />
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setRenamingPea(null)}>Cancel</Button>
+            <Button variant="primary" onClick={renamePea} disabled={!draftName.trim()}>Save</Button>
           </div>
         </Modal>
       )}

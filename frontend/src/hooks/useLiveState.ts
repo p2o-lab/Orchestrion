@@ -14,18 +14,21 @@ export interface LiveState {
   commandEn: Record<string, string[]> // service -> enabled Command names
 }
 
-const INITIAL: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {} }
+const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {} }
+const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {} }
 
 export function useLiveState(peaId: number | null, enabled: boolean): LiveState {
-  const [live, setLive] = useState<LiveState>(INITIAL)
+  const [live, setLive] = useState<LiveState>(CLOSED)
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
+    // Not connected (no PEA, or the user disconnected) -> 'closed', never 'connecting'.
     if (peaId === null || !enabled) {
-      setLive(INITIAL)
+      setLive(CLOSED)
       return
     }
-    setLive(INITIAL)
+    // Only now, while actually opening a socket, are we 'connecting'.
+    setLive(CONNECTING)
 
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${scheme}://${location.host}/api/peas/${peaId}/ws`)

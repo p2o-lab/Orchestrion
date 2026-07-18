@@ -10,20 +10,21 @@
    A token `--color-x` yields utilities `bg-x` / `text-x` / `border-x`.
    ========================================================================== */
 @theme {
-  --color-canvas: #0a0e14;
-  --color-elev: #0f151e;
-  --color-panel: #141c28;
-  --color-panel-2: #1a2432;
-  --color-hover: #1f2b3b;
-  --color-edge: rgba(255, 255, 255, 0.07);
-  --color-edge-strong: rgba(255, 255, 255, 0.14);
+  /* Comfortable dark slate — noticeably lighter than the old near-black. */
+  --color-canvas: #171c27;
+  --color-elev: #1c2330;
+  --color-panel: #222b3a;
+  --color-panel-2: #2a3444;
+  --color-hover: #333e50;
+  --color-edge: rgba(255, 255, 255, 0.08);
+  --color-edge-strong: rgba(255, 255, 255, 0.16);
 
-  --color-ink: #e7eef6;
-  --color-dim: #9fb0c3;
-  --color-faint: #5f7185;
+  --color-ink: #eef3f9;
+  --color-dim: #aab7c8;
+  --color-faint: #7688a0;
 
   --color-accent: #7c9cff;
-  --color-accent-bright: #9db6ff;
+  --color-accent-bright: #aec4ff;
 
   /* 2658-4 Table 14 service states */
   --color-st-idle: #60a5fa;
@@ -52,20 +53,37 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    /* a subtle aurora that carries the "majestic" feel without shouting */
+    /* Layered ambience: two aurora blooms over a faint dot-grid — depth without noise. */
     background-image:
-      radial-gradient(1200px 700px at 80% -10%, rgba(124, 156, 255, 0.10), transparent 60%),
-      radial-gradient(900px 600px at -5% 105%, rgba(45, 212, 191, 0.05), transparent 55%);
+      radial-gradient(1100px 640px at 82% -12%, rgba(124, 156, 255, 0.13), transparent 60%),
+      radial-gradient(820px 560px at -6% 108%, rgba(45, 212, 191, 0.08), transparent 55%),
+      radial-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: auto, auto, 22px 22px;
     background-attachment: fixed;
   }
   h1, h2, h3, h4 { letter-spacing: -0.02em; font-weight: 650; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--color-panel-2); border-radius: 20px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--color-hover); }
+  ::selection { background: rgba(124, 156, 255, 0.28); }
 }
 
-/* Keyframes utilities can't express (used via animate-[...] / small helpers). */
-@keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.75); } }
-@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.animate-fade-in { animation: fade-in 0.28s ease both; }
+/* Motion + effects that utilities can't express. */
+@keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes glow-breathe { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes sheen { from { background-position: -180% 0; } to { background-position: 180% 0; } }
+
+.animate-fade-in { animation: fade-in 0.3s ease both; }
+.animate-rise { animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .pulse-dot { animation: pulse-dot 1s ease-in-out infinite; }
+.glow-breathe { animation: glow-breathe 2.6s ease-in-out infinite; }
+
+/* Gradient hairline top-accent for elevated cards. */
+.edge-top-accent { position: relative; }
+.edge-top-accent::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(124,156,255,0.55), rgba(45,212,191,0.35), transparent);
+  opacity: 0.7;
+}

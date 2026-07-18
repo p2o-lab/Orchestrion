@@ -18,6 +18,12 @@ from orchestrion.mtp import model
 
 class ProjectCreate(BaseModel):
     name: str
+    description: str = ""
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
 
 
 class NameUpdate(BaseModel):
@@ -29,6 +35,7 @@ class NameUpdate(BaseModel):
 class ProjectRead(BaseModel):
     id: int
     name: str
+    description: str
     created_at: datetime
     pea_count: int
 

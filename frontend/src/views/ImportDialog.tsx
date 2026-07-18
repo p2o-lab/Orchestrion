@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { Button, Input, Modal } from '../ui/primitives'
+import { Icon } from '../ui/icons'
 
 export function ImportDialog({
   projectId,
@@ -52,10 +53,12 @@ export function ImportDialog({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="flex w-full items-center gap-3 rounded-lg border border-dashed border-edge-strong
+        className="flex w-full items-center gap-3 rounded-xl border border-dashed border-edge-strong
                    bg-elev px-4 py-4 text-left transition hover:border-accent/50 hover:bg-white/5"
       >
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">↑</span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent/12 text-accent">
+          <Icon name="upload" size={20} />
+        </span>
         <span className="min-w-0">
           <span className="block truncate text-sm text-ink">
             {file ? file.name : 'Choose an .aml file'}

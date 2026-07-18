@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
 # Import models so SQLModel.metadata knows every table before create_all().
@@ -25,8 +26,21 @@ _engine = create_engine(
 
 
 def init_db() -> None:
-    """Create tables if they do not exist. Called once at app startup."""
+    """Create tables if they do not exist, and apply tiny additive migrations.
+
+    We use create_all rather than a migration tool; create_all never ALTERs an
+    existing table, so a column added to a model after a DB already exists must be
+    backfilled here. Kept deliberately minimal (add-column-if-missing).
+    """
     SQLModel.metadata.create_all(_engine)
+    _add_column_if_missing("project", "description", "VARCHAR NOT NULL DEFAULT ''")
+
+
+def _add_column_if_missing(table: str, column: str, ddl_type: str) -> None:
+    with _engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+        if column not in cols:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
 
 
 def get_session() -> Iterator[Session]:

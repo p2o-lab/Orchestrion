@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from orchestrion.api.schemas import NameUpdate, ProjectCreate, ProjectRead
+from orchestrion.api.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Project
 
@@ -16,6 +16,7 @@ def _read(project: Project) -> ProjectRead:
     return ProjectRead(
         id=project.id,
         name=project.name,
+        description=project.description,
         created_at=project.created_at,
         pea_count=len(project.peas),
     )
@@ -30,7 +31,7 @@ def _get_or_404(session: Session, project_id: int) -> Project:
 
 @router.post("", response_model=ProjectRead, status_code=201)
 def create_project(body: ProjectCreate, session: Session = Depends(get_session)) -> ProjectRead:
-    project = Project(name=body.name)
+    project = Project(name=body.name, description=body.description)
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -49,11 +50,14 @@ def get_project(project_id: int, session: Session = Depends(get_session)) -> Pro
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
-def rename_project(
-    project_id: int, body: NameUpdate, session: Session = Depends(get_session)
+def update_project(
+    project_id: int, body: ProjectUpdate, session: Session = Depends(get_session)
 ) -> ProjectRead:
     project = _get_or_404(session, project_id)
-    project.name = body.name
+    if body.name is not None:
+        project.name = body.name
+    if body.description is not None:
+        project.description = body.description
     session.add(project)
     session.commit()
     session.refresh(project)

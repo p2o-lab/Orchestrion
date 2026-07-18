@@ -12,7 +12,7 @@ from orchestrion.db.engine import init_db
 async def lifespan(app: FastAPI):
     init_db()                       # create tables on first run
     yield
-    await live.registry.shutdown()  # close every open PEA session on exit
+    await live.registry.shutdown()  # close every persistent PEA connection on exit
 
 
 app = FastAPI(title="Orchestrion", version="0.1.0", lifespan=lifespan)
