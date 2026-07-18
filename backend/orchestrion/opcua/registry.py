@@ -73,6 +73,11 @@ class PeaRegistry:
         entry = self._entries.get(pea_id)
         return entry.snapshot() if entry is not None else None
 
+    def connection(self, pea_id: int) -> PeaConnection | None:
+        """The live connection for a connected PEA, or None if not connected."""
+        entry = self._entries.get(pea_id)
+        return entry.connection if entry is not None else None
+
     async def connect(self, pea_id: int, pea: Pea) -> LiveState:
         """Establish (or reuse a live) persistent connection. Raises if unreachable."""
         entry = self._entries.get(pea_id)

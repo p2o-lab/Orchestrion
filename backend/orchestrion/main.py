@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from orchestrion.api import live, peas, projects
+from orchestrion.api import control, live, peas, projects
 from orchestrion.db.engine import init_db
 
 
@@ -20,6 +20,7 @@ app = FastAPI(title="Orchestrion", version="0.1.0", lifespan=lifespan)
 app.include_router(projects.router)
 app.include_router(peas.router)
 app.include_router(live.router)
+app.include_router(control.router)
 
 
 # The route owns the /api prefix: the Vite dev proxy forwards /api/* without a

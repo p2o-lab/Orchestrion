@@ -162,6 +162,18 @@ def test_connect_to_unreachable_pea_returns_502(db_engine):
     client = TestClient(app)
     assert client.post(f"/api/peas/{pea_id}/connect").status_code == 502
 
+
+# NOTE: the actual start-via-API happy path is NOT tested through TestClient — it runs
+# each request on its own event loop, but the registry's asyncua connection is bound to
+# the loop it was created on, so real OPC UA I/O in a later request crashes at the socket
+# layer. This is a TestClient artifact (production runs one uvicorn loop). The control
+# logic is covered against a real VirtualPEA in test_control.py; here we only assert the
+# API's connection guard.
+def test_control_requires_a_connection(running_pea):
+    client, pea_id, _ = running_pea  # not connected
+    r = client.post(f"/api/peas/{pea_id}/services/Stirring/command", json={"command": "STOP"})
+    assert r.status_code == 409
+
 # NOTE: "PEA dies mid-session -> dropped + reported" is covered reliably in
 # test_registry.py against the registry directly (one event loop). Driving it through
 # TestClient + an in-process asyncua server was flaky in-sequence and is not worth the

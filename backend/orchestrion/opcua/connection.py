@@ -84,6 +84,7 @@ class PeaConnection:
         self._url = pea.endpoints[endpoint_index].url
         self._client = Client(self._url)
         self._ns_index: dict[str, int] = {}   # namespace URI -> live server index
+        self._vt_cache: dict[str, ua.VariantType] = {}  # identifier -> server value type
         self._connected = False
 
     @property
@@ -168,6 +169,36 @@ class PeaConnection:
         """Read and decode a service's current `StateCur` — [2658-4:2022] Table 14."""
         node = self._state_node(service)
         return decode_state(int(await self.read_value(node)))
+
+    async def write_value(self, node: OpcUaNode, value: object) -> None:
+        """Write a value using the server's declared type for that node.
+
+        The server's value type (e.g. Boolean for a mode flag, UInt32 for a DWORD
+        command/procedure word) is read once and cached; writing a bare Python int
+        would send Int64 and the server would reject it (BadTypeMismatch).
+        """
+        if not self._connected:
+            raise OpcUaConnectionError("not connected")
+        n = self._client.get_node(self.node_id(node))
+        vt = self._vt_cache.get(node.identifier)
+        if vt is None:
+            vt = await n.read_data_type_as_variant_type()
+            self._vt_cache[node.identifier] = vt
+        await n.write_value(ua.DataValue(ua.Variant(value, vt)))
+
+    def control_node(self, service: Service, attr: str) -> OpcUaNode:
+        """The ServiceControl node named `attr` (e.g. 'StateAutOp', 'CommandExt')."""
+        if service.control is None or attr not in service.control.nodes:
+            raise OpcUaConnectionError(
+                f"service {service.name!r} has no ServiceControl node {attr!r}"
+            )
+        return service.control.nodes[attr]
+
+    async def read_control(self, service: Service, attr: str) -> object:
+        return await self.read_value(self.control_node(service, attr))
+
+    async def write_control(self, service: Service, attr: str, value: object) -> None:
+        await self.write_value(self.control_node(service, attr), value)
 
     async def subscribe_service_state(
         self,

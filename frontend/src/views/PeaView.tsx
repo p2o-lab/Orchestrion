@@ -7,9 +7,6 @@ import { Button, Card, Spinner } from '../ui/primitives'
 import { StatePill } from '../ui/StatePill'
 import { Icon } from '../ui/icons'
 
-// A conventional command order for the CommandEn indicator row (2658-4 Table 14).
-const COMMANDS = ['START', 'STOP', 'HOLD', 'UNHOLD', 'PAUSE', 'RESUME', 'RESET', 'RESTART', 'COMPLETE', 'ABORT']
-
 export function PeaView() {
   const { projectId, peaId } = useParams()
   const id = Number(peaId)
@@ -112,6 +109,7 @@ export function PeaView() {
         {pea.services.map((s, i) => (
           <div key={s.name} className="animate-rise" style={{ animationDelay: `${i * 60}ms` }}>
             <ServiceCard
+              peaId={id}
               service={s}
               state={live.states[s.name]}
               enabled={new Set(live.commandEn[s.name] ?? [])}
@@ -164,18 +162,53 @@ function Identification({ pea }: { pea: PeaDetail }) {
   )
 }
 
+// Commands offered as buttons (START is issued via "Run" with a procedure).
+const BUTTON_COMMANDS = ['COMPLETE', 'STOP', 'HOLD', 'UNHOLD', 'PAUSE', 'RESUME', 'RESTART', 'RESET', 'ABORT']
+
 function ServiceCard({
+  peaId,
   service,
   state,
   enabled,
   connected,
 }: {
+  peaId: number
   service: Service
   state: string | undefined
   enabled: Set<string>
   connected: boolean
 }) {
   const [showNodes, setShowNodes] = useState(false)
+  const [procedure, setProcedure] = useState(service.procedures[0]?.procedure_id ?? 0)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function run() {
+    setBusy('RUN')
+    setError(null)
+    try {
+      await api.startService(peaId, service.name, procedure)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function command(cmd: string) {
+    setBusy(cmd)
+    setError(null)
+    try {
+      await api.sendCommand(peaId, service.name, cmd)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const canStart = connected && enabled.has('START')
+
   return (
     <Card className="edge-top-accent overflow-hidden p-6">
       {/* hero row: name + live state */}
@@ -190,49 +223,63 @@ function ServiceCard({
         )}
       </div>
 
-      {/* procedures */}
+      {/* run: choose a procedure + start */}
       <div className="mt-6">
-        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Procedures</div>
-        <div className="flex flex-wrap gap-2.5">
-          {service.procedures.map((p) => (
-            <div key={p.procedure_id} className="rounded-xl border border-edge bg-white/4 px-3.5 py-2.5">
-              <div className="flex items-center gap-2 text-sm text-ink">
-                <span className="font-mono text-xs text-accent">#{p.procedure_id}</span>
-                {p.name}
-              </div>
-              <div className={`mt-1 inline-flex items-center gap-1.5 text-[11px] ${p.is_self_completing ? 'text-st-completed' : 'text-st-idle'}`}>
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {p.is_self_completing ? 'self-completing' : 'continuous'}
-              </div>
-            </div>
-          ))}
+        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Run a procedure</div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <select
+            value={procedure}
+            onChange={(e) => setProcedure(Number(e.target.value))}
+            disabled={!connected || busy !== null}
+            className="rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
+          >
+            {service.procedures.map((p) => (
+              <option key={p.procedure_id} value={p.procedure_id}>
+                #{p.procedure_id} · {p.name} ({p.is_self_completing ? 'self-completing' : 'continuous'})
+              </option>
+            ))}
+          </select>
+          <Button variant="primary" onClick={run} disabled={!canStart || busy !== null}>
+            {busy === 'RUN' ? <Spinner className="h-4 w-4" /> : <Icon name="power" size={16} />}
+            Run
+          </Button>
+          {connected && !canStart && (
+            <span className="text-xs text-faint">Start is available from IDLE</span>
+          )}
         </div>
       </div>
 
-      {/* command bar (live CommandEn; M3 will make these actionable) */}
+      {/* command buttons (enabled strictly from live CommandEn) */}
       <div className="mt-6">
-        <div className="mb-2 flex items-center gap-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">
-          Commands
-          {connected && <span className="normal-case tracking-normal text-faint/70">· lit = enabled now</span>}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {COMMANDS.map((c) => {
+        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Commands</div>
+        <div className="flex flex-wrap gap-2">
+          {BUTTON_COMMANDS.map((c) => {
             const on = connected && enabled.has(c)
+            const danger = c === 'ABORT' || c === 'STOP'
             return (
-              <span
+              <button
                 key={c}
+                onClick={() => command(c)}
+                disabled={!on || busy !== null}
                 className={
-                  'rounded-lg border px-3 py-1.5 text-[11px] font-semibold tracking-wide transition duration-200 ' +
+                  'rounded-lg border px-3.5 py-1.5 text-xs font-semibold tracking-wide transition duration-150 ' +
                   (on
-                    ? 'border-accent/50 bg-accent/15 text-accent-bright shadow-[0_0_18px_-6px] shadow-accent'
-                    : 'border-edge bg-white/3 text-faint')
+                    ? danger
+                      ? 'border-danger/45 bg-danger/10 text-danger hover:bg-danger/20'
+                      : 'border-accent/45 bg-accent/12 text-accent-bright hover:bg-accent/20'
+                    : 'cursor-not-allowed border-edge bg-white/3 text-faint')
                 }
               >
-                {c}
-              </span>
+                {busy === c ? '…' : c}
+              </button>
             )
           })}
         </div>
+        {error && (
+          <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2 font-mono text-xs text-ink/90">
+            {error}
+          </div>
+        )}
       </div>
 
       {/* control interface (binding detail) */}

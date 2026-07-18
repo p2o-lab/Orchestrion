@@ -8,6 +8,7 @@ differ from the one that created the engine.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -17,7 +18,9 @@ from sqlmodel import Session, SQLModel, create_engine
 # Import models so SQLModel.metadata knows every table before create_all().
 from orchestrion.db import models  # noqa: F401
 
-DB_PATH = Path(__file__).resolve().parents[2] / "orchestrion.db"
+# Default DB next to the backend; override with ORCHESTRION_DB (tests, deployments,
+# or a throwaway instance that must not touch the real database).
+DB_PATH = Path(os.environ.get("ORCHESTRION_DB", Path(__file__).resolve().parents[2] / "orchestrion.db"))
 
 _engine = create_engine(
     f"sqlite:///{DB_PATH}",
