@@ -208,6 +208,9 @@ function ServiceCard({
   }
 
   const canStart = connected && enabled.has('START')
+  // Procedure choice is locked once running: allow it only when disconnected
+  // (pre-selecting) or when Start is actually available (IDLE).
+  const selectable = !connected || canStart
 
   return (
     <Card className="edge-top-accent overflow-hidden p-6">
@@ -223,22 +226,41 @@ function ServiceCard({
         )}
       </div>
 
-      {/* run: choose a procedure + start */}
+      {/* run: pick a procedure (click a card) + start */}
       <div className="mt-6">
-        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Run a procedure</div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <select
-            value={procedure}
-            onChange={(e) => setProcedure(Number(e.target.value))}
-            disabled={!connected || busy !== null}
-            className="rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
-          >
-            {service.procedures.map((p) => (
-              <option key={p.procedure_id} value={p.procedure_id}>
-                #{p.procedure_id} · {p.name} ({p.is_self_completing ? 'self-completing' : 'continuous'})
-              </option>
-            ))}
-          </select>
+        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Procedure</div>
+        <div className="flex flex-wrap gap-2.5">
+          {service.procedures.map((p) => {
+            const selected = p.procedure_id === procedure
+            return (
+              <button
+                key={p.procedure_id}
+                onClick={() => setProcedure(p.procedure_id)}
+                disabled={!selectable || busy !== null}
+                title={!selectable && connected ? 'Locked while running' : undefined}
+                className={
+                  'relative rounded-xl border px-3.5 py-2.5 text-left transition duration-150 ' +
+                  (selected
+                    ? 'border-accent bg-accent/12 shadow-[0_0_22px_-8px] shadow-accent'
+                    : selectable
+                      ? 'border-edge bg-white/4 hover:border-accent/40 hover:bg-white/6'
+                      : 'border-edge bg-white/4 opacity-45 cursor-not-allowed')
+                }
+              >
+                <div className="flex items-center gap-2 text-sm text-ink">
+                  <span className="font-mono text-xs text-accent">#{p.procedure_id}</span>
+                  {p.name}
+                  {selected && <Icon name="chevron" size={13} className="text-accent" />}
+                </div>
+                <div className={`mt-1 inline-flex items-center gap-1.5 text-[11px] ${p.is_self_completing ? 'text-st-completed' : 'text-st-idle'}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {p.is_self_completing ? 'self-completing' : 'continuous'}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+        <div className="mt-3 flex items-center gap-3">
           <Button variant="primary" onClick={run} disabled={!canStart || busy !== null}>
             {busy === 'RUN' ? <Spinner className="h-4 w-4" /> : <Icon name="power" size={16} />}
             Run
