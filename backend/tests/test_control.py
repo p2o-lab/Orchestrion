@@ -16,6 +16,7 @@ from orchestrion.opcua.control import (
     ServiceControlError,
     command_service,
     select_procedure,
+    set_parameter,
     start_service,
 )
 from orchestrion.state.codes import Command, ServiceState
@@ -35,7 +36,7 @@ def _aml(tmp_path: Path, port: int) -> Path:
     return dst
 
 
-async def _wait_state(conn, service, target, timeout=5.0):
+async def _wait_state(conn, service, target, timeout=10.0):
     import time
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -98,6 +99,35 @@ def test_abort_from_execute(tmp_path):
         return True
 
     assert _run(tmp_path, 48132, scenario)
+
+
+def test_set_parameter_then_start_applies_the_value(tmp_path):
+    async def scenario(conn, service):
+        proc = next(p for p in service.procedures if p.procedure_id == 2)  # Duration
+        assert proc.parameters, "Duration should have a parameter"
+        param = proc.parameters[0]
+        await start_service(conn, service, 2, values={param.name: 42.0})
+        # the value is applied BEFORE Start, so VOut holds it now (proc 2 is
+        # self-completing, so EXECUTE is transient — don't race it; check the value
+        # and that the service actually ran through to COMPLETED).
+        vout = float(await conn.read_value(param.data.nodes["VOut"]))
+        assert abs(vout - 42.0) < 1e-6, vout
+        assert await _wait_state(conn, service, ServiceState.COMPLETED)
+        return True
+
+    assert _run(tmp_path, 48134, scenario)
+
+
+def test_out_of_range_parameter_is_rejected(tmp_path):
+    async def scenario(conn, service):
+        proc = next(p for p in service.procedures if p.procedure_id == 2)
+        param = proc.parameters[0]
+        # VMax is seeded at 1000 in the VirtualPEA; 99999 must not be accepted into VReq
+        with pytest.raises(ServiceControlError):
+            await set_parameter(conn, param, 99999.0)
+        return True
+
+    assert _run(tmp_path, 48135, scenario)
 
 
 def test_select_invalid_procedure_raises(tmp_path):

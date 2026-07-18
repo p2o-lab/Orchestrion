@@ -100,6 +100,9 @@ class VirtualPEA:
 
         # attribute name -> the asyncua Node backing it (ServiceControl only)
         self._control: dict[str, object] = {}
+        # one node-map per procedure parameter (AnaServParam etc.) — modelled so the
+        # POL's controlled value assignment (§8.1.3) can be driven for real.
+        self._parameters: list[dict[str, object]] = []
         self._ns_indexes: dict[str, int] = {}      # namespace URI -> server index
         self._scan_task: asyncio.Task | None = None
 
@@ -151,6 +154,26 @@ class VirtualPEA:
             index = self._ns_indexes[opc_node.namespace]
             node_id = ua.NodeId(opc_node.identifier, index, ua.NodeIdType.String)
             self._control[attr_name] = self._server.get_node(node_id)
+
+        # Wire each procedure parameter's DataAssembly (AnaServParam etc.) as its own
+        # node-map, and seed it: Offline, limits, apply enabled.
+        for service in self._pea.services:
+            for procedure in service.procedures:
+                for parameter in procedure.parameters:
+                    nodes = {
+                        attr: self._server.get_node(
+                            ua.NodeId(n.identifier, self._ns_indexes[n.namespace],
+                                      ua.NodeIdType.String)
+                        )
+                        for attr, n in parameter.data.nodes.items()
+                    }
+                    self._parameters.append(nodes)
+                    await self._set_bool(nodes, "StateChannel", False)
+                    await self._set_bool(nodes, "SrcChannel", False)
+                    await self._set_param_mode(nodes, "Off")
+                    await self._set_bool(nodes, "ApplyEn", True)
+                    await self._set_float(nodes, "VMin", 0.0)
+                    await self._set_float(nodes, "VMax", 1000.0)
 
         # Start OFFLINE (a valid manufacturer default per §6.2.1) on the operator
         # channel, so a client can drive the handshake.
@@ -230,6 +253,8 @@ class VirtualPEA:
                 await self._process_command()
                 await self._auto_advance()
                 await self._publish()
+                for nodes in self._parameters:
+                    await self._process_parameter(nodes)
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             pass
@@ -341,6 +366,89 @@ class VirtualPEA:
             if await self._read_bool("SrcExtAct"):
                 return "Ext"
         return None
+
+    # ── procedure parameter (controlled value assignment, §8.1.3) ────────────────
+
+    async def _process_parameter(self, nodes: dict) -> None:
+        """Model one parameter: its mode handshake + VExt->VReq->VOut on ApplyExt.
+
+        Only the External channel is modelled (the POL's path); Operator/Internal are
+        left inert, like the placeholder they were.
+        """
+        await self._process_param_modes(nodes)
+        await self._set_bool(nodes, "ApplyEn", True)  # apply always enabled in the sim
+
+        # [§8.2.2.3-style gating] VExt/ApplyExt honoured only in Automatic + External.
+        if not (await self._get_bool(nodes, "StateAutAct")
+                and await self._get_bool(nodes, "SrcExtAct")):
+            return
+
+        # [§8.1.3] validate the requested external value against the limits into VReq.
+        vext = await self._get_float(nodes, "VExt")
+        vmin = await self._get_float(nodes, "VMin")
+        vmax = await self._get_float(nodes, "VMax")
+        if vmin <= vext <= vmax:
+            await self._set_float(nodes, "VReq", vext)
+
+        # [§8.1.3] Apply (0->1) commits VReq -> VOut, then the PEA acks (1->0).
+        if await self._get_bool(nodes, "ApplyExt"):
+            vreq = await self._get_float(nodes, "VReq")
+            await self._set_float(nodes, "VOut", vreq)
+            await self._set_float(nodes, "VFbk", vreq)
+            await self._set_bool(nodes, "ApplyExt", False)
+
+    async def _process_param_modes(self, nodes: dict) -> None:
+        """The §6.2.1 operation/source-mode handshake, on a parameter's node-map."""
+        channel = "Aut" if await self._get_bool(nodes, "StateChannel") else "Op"
+        off = await self._get_bool(nodes, f"StateOff{channel}")
+        op = await self._get_bool(nodes, f"StateOp{channel}")
+        aut = await self._get_bool(nodes, f"StateAut{channel}")
+        if off or op or aut:
+            mode = "Off" if off else "Op" if op else "Aut"
+            for name in (f"StateOff{channel}", f"StateOp{channel}", f"StateAut{channel}"):
+                await self._set_bool(nodes, name, False)
+            await self._set_param_mode(nodes, mode)
+
+        if await self._get_bool(nodes, "StateAutAct"):
+            schannel = "Aut" if await self._get_bool(nodes, "SrcChannel") else "Op"
+            want_int = await self._get_bool(nodes, f"SrcInt{schannel}")
+            want_ext = await self._get_bool(nodes, f"SrcExt{schannel}")
+            if want_int or want_ext:
+                mode = "Int" if want_int else "Ext"   # [§6.2.1] Internal > External
+                for name in (f"SrcInt{schannel}", f"SrcExt{schannel}"):
+                    await self._set_bool(nodes, name, False)
+                await self._set_bool(nodes, "SrcIntAct", mode == "Int")
+                await self._set_bool(nodes, "SrcExtAct", mode == "Ext")
+
+    async def _set_param_mode(self, nodes: dict, mode: str) -> None:
+        await self._set_bool(nodes, "StateOffAct", mode == "Off")
+        await self._set_bool(nodes, "StateOpAct", mode == "Op")
+        await self._set_bool(nodes, "StateAutAct", mode == "Aut")
+        if mode != "Aut":
+            await self._set_bool(nodes, "SrcIntAct", False)
+            await self._set_bool(nodes, "SrcExtAct", False)
+
+    @staticmethod
+    async def _set_bool(nodes: dict, attr: str, value: bool) -> None:
+        n = nodes.get(attr)
+        if n is not None:
+            await n.write_value(ua.DataValue(ua.Variant(bool(value), ua.VariantType.Boolean)))
+
+    @staticmethod
+    async def _set_float(nodes: dict, attr: str, value: float) -> None:
+        n = nodes.get(attr)
+        if n is not None:
+            await n.write_value(ua.DataValue(ua.Variant(float(value), ua.VariantType.Float)))
+
+    @staticmethod
+    async def _get_bool(nodes: dict, attr: str) -> bool:
+        n = nodes.get(attr)
+        return bool(await n.read_value()) if n is not None else False
+
+    @staticmethod
+    async def _get_float(nodes: dict, attr: str) -> float:
+        n = nodes.get(attr)
+        return float(await n.read_value()) if n is not None else 0.0
 
     # ── node IO ─────────────────────────────────────────────────────────────────
 

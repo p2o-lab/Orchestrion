@@ -180,14 +180,22 @@ function ServiceCard({
 }) {
   const [showNodes, setShowNodes] = useState(false)
   const [procedure, setProcedure] = useState(service.procedures[0]?.procedure_id ?? 0)
+  const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const selectedProc = service.procedures.find((p) => p.procedure_id === procedure)
 
   async function run() {
     setBusy('RUN')
     setError(null)
     try {
-      await api.startService(peaId, service.name, procedure)
+      const nums: Record<string, number> = {}
+      for (const param of selectedProc?.parameters ?? []) {
+        const raw = values[param.name]
+        if (raw !== undefined && raw.trim() !== '') nums[param.name] = Number(raw)
+      }
+      await api.startService(peaId, service.name, procedure, nums)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {
@@ -260,7 +268,34 @@ function ServiceCard({
             )
           })}
         </div>
-        <div className="mt-3 flex items-center gap-3">
+
+        {/* parameter values for the selected procedure (set before Start, §4.3.1) */}
+        {selectedProc && selectedProc.parameters.length > 0 && (
+          <div className="mt-4 space-y-2.5">
+            {selectedProc.parameters.map((param) => (
+              <div key={param.name} className="flex flex-wrap items-center gap-3">
+                <label className="min-w-40 text-sm text-dim" title={param.name}>
+                  {param.name}
+                </label>
+                {param.kind === 'string' ? (
+                  <span className="text-xs text-faint">string parameters not settable yet</span>
+                ) : (
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="value"
+                    value={values[param.name] ?? ''}
+                    onChange={(e) => setValues((v) => ({ ...v, [param.name]: e.target.value }))}
+                    disabled={!selectable || busy !== null}
+                    className="w-40 rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" onClick={run} disabled={!canStart || busy !== null}>
             {busy === 'RUN' ? <Spinner className="h-4 w-4" /> : <Icon name="power" size={16} />}
             Run

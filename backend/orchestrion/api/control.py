@@ -24,6 +24,7 @@ router = APIRouter(tags=["control"])
 
 class StartRequest(BaseModel):
     procedure_id: int
+    values: dict[str, float] = {}  # parameter name -> value (controlled value assignment)
 
 
 class CommandRequest(BaseModel):
@@ -56,7 +57,7 @@ async def start(
     service = _service(session, pea_id, service_name)
     conn = _require_connection(pea_id)
     try:
-        await control.start_service(conn, service, body.procedure_id)
+        await control.start_service(conn, service, body.procedure_id, body.values)
     except control.ServiceControlError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True}

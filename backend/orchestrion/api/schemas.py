@@ -57,10 +57,16 @@ class NodeSchema(BaseModel):
     access: str
 
 
+class ParameterSchema(BaseModel):
+    name: str
+    kind: str  # 'analog' | 'integer' | 'binary' | 'string' — picks the UI input
+
+
 class ProcedureSchema(BaseModel):
     name: str
     procedure_id: int
     is_self_completing: bool
+    parameters: list[ParameterSchema]
 
 
 class ServiceSchema(BaseModel):
@@ -109,11 +115,29 @@ def _service(service: model.Service) -> ServiceSchema:
                 name=p.name,
                 procedure_id=p.procedure_id,
                 is_self_completing=p.is_self_completing,
+                parameters=[
+                    ParameterSchema(name=par.name, kind=_parameter_kind(par))
+                    for par in p.parameters
+                ],
             )
             for p in service.procedures
         ],
         control_nodes=control_nodes,
     )
+
+
+def _parameter_kind(parameter: model.ProcedureParameter) -> str:
+    """Map the parameter's DataAssembly class to a UI input kind."""
+    cp = parameter.data.class_path
+    if cp.endswith("AnaServParam"):
+        return "analog"
+    if cp.endswith("DIntServParam"):
+        return "integer"
+    if cp.endswith("BinServParam"):
+        return "binary"
+    if cp.endswith("StringServParam"):
+        return "string"
+    return "analog"
 
 
 def pea_detail(summary: PeaSummary, parsed: model.Pea) -> PeaDetail:

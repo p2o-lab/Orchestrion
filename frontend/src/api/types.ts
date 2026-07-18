@@ -25,10 +25,16 @@ export interface NodeInfo {
   access: string
 }
 
+export interface Parameter {
+  name: string
+  kind: string // 'analog' | 'integer' | 'binary' | 'string'
+}
+
 export interface Procedure {
   name: string
   procedure_id: number
   is_self_completing: boolean
+  parameters: Parameter[]
 }
 
 export interface Service {

@@ -62,10 +62,15 @@ export const api = {
     request<LiveSnapshot>(`/api/peas/${peaId}/disconnect`, { method: 'POST' }),
 
   // Control (M3): the backend runs the 2658-4 handshake, then commands.
-  startService: (peaId: number, service: string, procedureId: number) =>
+  startService: (
+    peaId: number,
+    service: string,
+    procedureId: number,
+    values: Record<string, number> = {},
+  ) =>
     request<{ ok: boolean }>(
       `/api/peas/${peaId}/services/${encodeURIComponent(service)}/start`,
-      { method: 'POST', body: JSON.stringify({ procedure_id: procedureId }) },
+      { method: 'POST', body: JSON.stringify({ procedure_id: procedureId, values }) },
     ),
   sendCommand: (peaId: number, service: string, command: string) =>
     request<{ ok: boolean }>(

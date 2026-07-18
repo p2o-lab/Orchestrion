@@ -21,6 +21,7 @@ from orchestrion.mtp.model import (
     IdentifierType,
     OpcUaNode,
     Pea,
+    ProcedureParameter,
     Service,
     ServiceProcedure,
 )
@@ -121,6 +122,15 @@ PROCEDURE_HEALTH_VIEW_CLASS = (
 PROCEDURE_ID_ATTRIBUTE = "ProcedureID"
 IS_SELF_COMPLETING_ATTRIBUTE = "IsSelfCompleting"
 
+# [2658-4:2022 Table 36 #5a, Table 32] procedure parameters — matched exactly ("IE of
+# the SUC ProcedureParameter"), like Service/Procedure.
+PROCEDURE_PARAMETER_CLASS = "MTPServiceSUCLib/ServiceParameter/ProcedureParameter"
+
+# [2658-4:2022 Table 36 #5b] each joins a DataAssembly *derived from* ParameterElement
+# (AnaServParam/DIntServParam/BinServParam/StringServParam) — a derivation check, not
+# an exact match, so it is resolved through the class library (is_derived_from).
+PARAMETER_ELEMENT_CLASS = "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ParameterElement"
+
 # [2658-1:2022 Table 25] BOOL maps to xs:boolean, whose lexical space is exactly
 # {true, false, 1, 0} — and is **case-sensitive**.
 #
@@ -169,7 +179,7 @@ def read_mtp(path: Path) -> Pea:
     services: list[Service] = []
     for entry in table_of_contents:
         if entry.class_path == SERVICE_SET_CLASS and entry.hierarchy is not None:
-            services.extend(read_service_set(path, entry.hierarchy, assemblies))
+            services.extend(read_service_set(path, root, entry.hierarchy, assemblies))
 
     return Pea(
         type_name=manifest.pea_type_name,
@@ -520,6 +530,7 @@ def _check_tag_names_unique(path: Path, assemblies: dict[str, DataAssembly]) -> 
 
 def read_service_set(
     path: Path,
+    root: etree._Element,
     hierarchy: etree._Element,
     assemblies: dict[str, DataAssembly],
 ) -> tuple[Service, ...]:
@@ -528,22 +539,26 @@ def read_service_set(
     `hierarchy` is the InstanceHierarchy the manifest's ServiceSet entry points at
     (via its AspectRef); `assemblies` is the InstanceList keyed by RefID. The two are
     joined by the **LinkedObject concept** — a Service and its ServiceControl share a
-    RefID while their element IDs differ ([2658-1:2022] Table 36 #4).
+    RefID while their element IDs differ ([2658-1:2022] Table 36 #4). `root` is needed
+    for the ProcedureParameter join (#5b is a *derivation* check).
 
-    Deliberately out of scope (Rule 4 — the M1 spine is services, procedures and
-    comm bindings): ConfigurationParameters (#3), ProcedureParameters (#5),
-    ReportValues (#6), ProcessValues (#7) and `Classification`/IRDI (#4d).
+    Deliberately out of scope (Rule 4): ConfigurationParameters (#3), ReportValues
+    (#6), ProcessValues (#7) and `Classification`/IRDI (#4d). ProcedureParameters (#5)
+    are now read (M3-3b).
     """
     # [Table 36 #2a] within the IH, an IE of the SUC Service per service.
     return tuple(
-        _read_service(path, element, assemblies)
+        _read_service(path, root, element, assemblies)
         for element in caex._children(hierarchy, "InternalElement")
         if element.get("RefBaseSystemUnitPath") == SERVICE_CLASS
     )
 
 
 def _read_service(
-    path: Path, element: etree._Element, assemblies: dict[str, DataAssembly]
+    path: Path,
+    root: etree._Element,
+    element: etree._Element,
+    assemblies: dict[str, DataAssembly],
 ) -> Service:
     ref_id = _read_ref_id(path, element, "service")
 
@@ -563,7 +578,7 @@ def _read_service(
 
     # [Table 36 #4a] procedures are IEs of the SUC Procedure below the Service IE.
     procedures = tuple(
-        _read_procedure(path, child, assemblies, control.tag_name)
+        _read_procedure(path, root, child, assemblies, control.tag_name)
         for child in caex._children(element, "InternalElement")
         if child.get("RefBaseSystemUnitPath") == PROCEDURE_CLASS
     )
@@ -597,6 +612,7 @@ def _read_service(
 
 def _read_procedure(
     path: Path,
+    root: etree._Element,
     element: etree._Element,
     assemblies: dict[str, DataAssembly],
     service_name: str,
@@ -658,12 +674,57 @@ def _read_procedure(
             f"whose values are {sorted(_BOOLEAN)}"
         )
 
+    # [Table 36 #5a] procedure parameters are IEs of the SUC ProcedureParameter below
+    # this Procedure IE.
+    parameters = tuple(
+        _read_procedure_parameter(path, root, child, assemblies, name)
+        for child in caex._children(element, "InternalElement")
+        if child.get("RefBaseSystemUnitPath") == PROCEDURE_PARAMETER_CLASS
+    )
+
     return ServiceProcedure(
         name=name,
         ref_id=ref_id,
         procedure_id=procedure_id,
         is_self_completing=flag,
+        parameters=parameters,
     )
+
+
+def _read_procedure_parameter(
+    path: Path,
+    root: etree._Element,
+    element: etree._Element,
+    assemblies: dict[str, DataAssembly],
+    procedure_name: str,
+) -> ProcedureParameter:
+    """[Table 36 #5] one ProcedureParameter, joined to its parameter DataAssembly."""
+    ref_id = _read_ref_id(path, element, "procedure parameter")
+
+    # [#5b] joined by RefID to a DataAssembly *derived from* ParameterElement — a
+    # derivation check (contrast #2b/#4e's exact-class joins), so it is verified
+    # through the class library, not by an exact class-path string.
+    data = assemblies.get(ref_id)
+    if data is None:
+        raise MtpStructureError(
+            f"{path.name}: [2658-4:2022 Table 36 #5b] the procedure parameter with RefID "
+            f"{ref_id!r} (procedure {procedure_name!r}) has no DataAssembly sharing that "
+            "RefID in the InstanceList"
+        )
+    if not caex.is_derived_from(root, data.class_path, PARAMETER_ELEMENT_CLASS):
+        raise MtpStructureError(
+            f"{path.name}: [2658-4:2022 Table 36 #5b] the procedure parameter with RefID "
+            f"{ref_id!r} joins a DataAssembly of {data.class_path!r}, which is not derived "
+            f"from {PARAMETER_ELEMENT_CLASS!r}"
+        )
+
+    # [#5c] the parameter's name is the referenced DataAssembly's TagName.
+    if not data.tag_name:
+        raise MtpStructureError(
+            f"{path.name}: [2658-4:2022 Table 36 #5c] a procedure parameter of "
+            f"{procedure_name!r} has no TagName on its DataAssembly, which is its name"
+        )
+    return ProcedureParameter(name=data.tag_name, ref_id=ref_id, data=data)
 
 
 def _join_data_assembly(

@@ -127,6 +127,26 @@ class DataAssembly:
 
 
 @dataclass(frozen=True)
+class ProcedureParameter:
+    """A procedure's input parameter — [2658-4:2022] Table 36 #5, §9.1.6.
+
+    Modelled as an IE of SUC `ProcedureParameter` below its Procedure IE (#5a),
+    LinkedObject-joined to a `DataAssembly` derived from `ParameterElement` (#5b) —
+    e.g. `AnaServParam`, which carries the value channels (`VExt`, `VReq`, `VOut`,
+    `VMin`/`VMax`/`VUnit`, `ApplyExt`, …) the POL uses for controlled value
+    assignment (§8.1.3, §8.2.2.9).
+    """
+
+    name: str
+    """[#5c] the referenced DataAssembly's TagName."""
+
+    ref_id: str
+
+    data: "DataAssembly"
+    """The joined parameter DataAssembly — its `nodes` hold the value channels."""
+
+
+@dataclass(frozen=True)
 class ServiceProcedure:
     """A selectable variant of a service.
 
@@ -146,6 +166,9 @@ class ServiceProcedure:
     is_self_completing: bool
     """[Table 30] `IsSelfCompleting`. A self-completing procedure leaves EXECUTE on
     its own; a non-self-completing one needs an explicit `Complete`."""
+
+    parameters: tuple[ProcedureParameter, ...] = ()
+    """[Table 36 #5] the procedure's input parameters (may be empty)."""
 
 
 @dataclass(frozen=True)
