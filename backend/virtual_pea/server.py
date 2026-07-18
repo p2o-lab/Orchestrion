@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from pathlib import Path
 
 from asyncua import Server, ua
@@ -103,6 +104,10 @@ class VirtualPEA:
         # one node-map per procedure parameter (AnaServParam etc.) — modelled so the
         # POL's controlled value assignment (§8.1.3) can be driven for real.
         self._parameters: list[dict[str, object]] = []
+        # PEA-wide process values (§6.3): outgoing ones the PEA continuously provides
+        # (animated below), so the POL's live subscription has real changing data.
+        self._process_out: list[dict[str, object]] = []
+        self._elapsed = 0.0                        # seconds of scan time, for animation
         self._ns_indexes: dict[str, int] = {}      # namespace URI -> server index
         self._scan_task: asyncio.Task | None = None
 
@@ -174,6 +179,23 @@ class VirtualPEA:
                     await self._set_bool(nodes, "ApplyEn", True)
                     await self._set_float(nodes, "VMin", 0.0)
                     await self._set_float(nodes, "VMax", 1000.0)
+
+        # Wire the PEA-wide outgoing process values (§6.3.2) as node-maps and seed the
+        # analog scaling config the POL reads to render them. VUnit/scaling are the
+        # vendor's config (not a standard-coded value we may guess) — kept plausible
+        # for the demo; the value channel V is animated in the scan loop.
+        for value in self._pea.process_values_out:
+            nodes = {
+                attr: self._server.get_node(
+                    ua.NodeId(n.identifier, self._ns_indexes[n.namespace],
+                              ua.NodeIdType.String)
+                )
+                for attr, n in value.data.nodes.items()
+            }
+            self._process_out.append(nodes)
+            if "VSclMin" in value.data.nodes:
+                await self._set_float(nodes, "VSclMin", 0.0)
+                await self._set_float(nodes, "VSclMax", 100.0)
 
         # Start OFFLINE (a valid manufacturer default per §6.2.1) on the operator
         # channel, so a client can drive the handshake.
@@ -255,6 +277,8 @@ class VirtualPEA:
                 await self._publish()
                 for nodes in self._parameters:
                     await self._process_parameter(nodes)
+                await self._process_process_values()
+                self._elapsed += 0.05
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             pass
@@ -337,6 +361,29 @@ class VirtualPEA:
     async def _publish(self) -> None:
         await self._write("StateCur", int(self._sm.state))
         await self._write("CommandEn", self._sm.command_en_word())
+
+    # ── process values (§6.3) ────────────────────────────────────────────────────
+
+    async def _process_process_values(self) -> None:
+        """Animate the outgoing process values so the POL sees live, changing data.
+
+        [§6.3.1] process values are provided regardless of the service's mode or state,
+        so these move continuously. Analog values (AnaView: they carry VSclMin) sweep
+        their scaled range; binary values (BinView) toggle slowly. Only the value
+        channel V is driven — WQC's quality encoding is standard-coded ([2658-3:2020]),
+        not something to guess, so it is left at its declared default here.
+        """
+        for index, nodes in enumerate(self._process_out):
+            if "VSclMin" in nodes:                       # AnaView — an analog reading
+                lo = await self._get_float(nodes, "VSclMin")
+                hi = await self._get_float(nodes, "VSclMax")
+                mid, half = (lo + hi) / 2, (hi - lo) / 2
+                phase = index * 1.7                      # de-sync the channels visibly
+                await self._set_float(
+                    nodes, "V", mid + half * math.sin(self._elapsed * 0.5 + phase)
+                )
+            else:                                        # BinView — a binary state
+                await self._set_bool(nodes, "V", int(self._elapsed) // 5 % 2 == 0)
 
     # ── mode helpers ────────────────────────────────────────────────────────────
 
