@@ -24,6 +24,7 @@ from orchestrion.mtp.model import (
     ProcedureParameter,
     Service,
     ServiceProcedure,
+    ValueObject,
 )
 
 # [2658-1:2022 Table 11 / Table 23] the CommunicationSet's two children.
@@ -131,6 +132,37 @@ PROCEDURE_PARAMETER_CLASS = "MTPServiceSUCLib/ServiceParameter/ProcedureParamete
 # an exact match, so it is resolved through the class library (is_derived_from).
 PARAMETER_ELEMENT_CLASS = "MTPDataObjectSUCLib/DataAssembly/ServiceElement/ParameterElement"
 
+# ── The value model — [2658-4:2022] Table 36 #3/#6/#7/#8 + Table 42 ────────────────
+#
+# Every value object is the same shape: an IE **of a specific SUC** (exact match, like
+# Service/Procedure), joined by RefID to a DataAssembly that is **derived from** a base
+# element SUC (a derivation check, resolved through the class library), and named by
+# that DataAssembly's TagName. Only the SUC and the base element differ per kind.
+
+# [Table 36 #3a, Table 33] configuration parameters — IEs of the SUC
+# ConfigurationParameter below the Service IE.
+CONFIGURATION_PARAMETER_CLASS = "MTPServiceSUCLib/ServiceParameter/ConfigurationParameter"
+
+# [Table 36 #6a, Table 34] report values — IEs of the SUC ReportValue below the
+# Procedure IE.
+REPORT_VALUE_CLASS = "MTPServiceSUCLib/ReportValue"
+
+# [Table 36 #7a/#8a, Tables 39/40] procedure-level process values — IEs of the SUC
+# ProcessValueIn/ProcessValueOut below the Procedure IE. The same two SUCs also carry
+# the PEA-wide ProcessValueSet (Table 42 #2b/#3b).
+PROCESS_VALUE_IN_CLASS = "MTPProcessValueSUCLib/ProcessValue/ProcessValueIn"
+PROCESS_VALUE_OUT_CLASS = "MTPProcessValueSUCLib/ProcessValue/ProcessValueOut"
+
+# [2658-4:2022 Table 37] the ProcessValueSet aspect's table-of-contents class — a
+# separate IH holding the PEA's cross-PEA process values (§9.2.2). Optional like the
+# ServiceSet ([2658-1:2022 Table 36 #9]).
+PROCESS_VALUE_SET_CLASS = "MTPProcessValueSUCLib/ProcessValueSet"
+
+# The base element SUCs the value DataAssemblies derive from — [2658-3:2020] §8.2 for
+# IndicatorElement, [2658-4:2022] Table 22 for InputElement. Matched by derivation.
+INDICATOR_ELEMENT_CLASS = "MTPDataObjectSUCLib/DataAssembly/IndicatorElement"
+INPUT_ELEMENT_CLASS = "MTPDataObjectSUCLib/DataAssembly/InputElement"
+
 # [2658-1:2022 Table 25] BOOL maps to xs:boolean, whose lexical space is exactly
 # {true, false, 1, 0} — and is **case-sensitive**.
 #
@@ -177,9 +209,19 @@ def read_mtp(path: Path) -> Pea:
     # is unusual but conformant, so an absent ServiceSet yields no services rather
     # than an error. Aspects are not stated to be unique either, so each contributes.
     services: list[Service] = []
+    process_values_in: list[ValueObject] = []
+    process_values_out: list[ValueObject] = []
     for entry in table_of_contents:
-        if entry.class_path == SERVICE_SET_CLASS and entry.hierarchy is not None:
+        if entry.hierarchy is None:
+            continue
+        if entry.class_path == SERVICE_SET_CLASS:
             services.extend(read_service_set(path, root, entry.hierarchy, assemblies))
+        elif entry.class_path == PROCESS_VALUE_SET_CLASS:
+            incoming, outgoing = read_process_value_set(
+                path, root, entry.hierarchy, assemblies
+            )
+            process_values_in.extend(incoming)
+            process_values_out.extend(outgoing)
 
     return Pea(
         type_name=manifest.pea_type_name,
@@ -189,6 +231,8 @@ def read_mtp(path: Path) -> Pea:
         product_code=manifest.product_code,
         endpoints=source_index.endpoints,
         services=tuple(services),
+        process_values_in=tuple(process_values_in),
+        process_values_out=tuple(process_values_out),
     )
 
 
@@ -542,9 +586,13 @@ def read_service_set(
     RefID while their element IDs differ ([2658-1:2022] Table 36 #4). `root` is needed
     for the ProcedureParameter join (#5b is a *derivation* check).
 
-    Deliberately out of scope (Rule 4): ConfigurationParameters (#3), ReportValues
-    (#6), ProcessValues (#7) and `Classification`/IRDI (#4d). ProcedureParameters (#5)
-    are now read (M3-3b).
+    Now read: ServiceControl (#2), Procedures (#4), ProcedureParameters (#5, M3-3b),
+    ConfigurationParameters (#3), ReportValues (#6) and procedure-level ProcessValues
+    (#7/#8, live-values increment). The PEA-wide ProcessValueSet (Table 42) is read
+    separately by `read_process_value_set`.
+
+    Still out of scope (Rule 4): RequiredEquipment (#9), ServiceInteractions, and the
+    `Classification`/IRDI attribute (#4d).
     """
     # [Table 36 #2a] within the IH, an IE of the SUC Service per service.
     return tuple(
@@ -552,6 +600,44 @@ def read_service_set(
         for element in caex._children(hierarchy, "InternalElement")
         if element.get("RefBaseSystemUnitPath") == SERVICE_CLASS
     )
+
+
+def read_process_value_set(
+    path: Path,
+    root: etree._Element,
+    hierarchy: etree._Element,
+    assemblies: dict[str, DataAssembly],
+) -> tuple[tuple[ValueObject, ...], tuple[ValueObject, ...]]:
+    """Read the ProcessValueSet aspect — [2658-4:2022] §9.2, Table 42.
+
+    Returns `(incoming, outgoing)`. `hierarchy` is the InstanceHierarchy the manifest's
+    ProcessValueSet entry points at; the process values are IEs of the SUC
+    ProcessValueIn/ProcessValueOut directly within it (Table 42 #2b/#3b), joined to
+    their DataAssemblies by the LinkedObject RefID exactly as the ServiceSet is.
+    """
+    incoming = _read_value_objects(
+        path,
+        root,
+        hierarchy,
+        assemblies,
+        suc_class=PROCESS_VALUE_IN_CLASS,
+        base_element_class=INPUT_ELEMENT_CLASS,
+        rule="Table 42 #2",
+        label="incoming process value",
+        context="ProcessValueSet",
+    )
+    outgoing = _read_value_objects(
+        path,
+        root,
+        hierarchy,
+        assemblies,
+        suc_class=PROCESS_VALUE_OUT_CLASS,
+        base_element_class=INDICATOR_ELEMENT_CLASS,
+        rule="Table 42 #3",
+        label="outgoing process value",
+        context="ProcessValueSet",
+    )
+    return incoming, outgoing
 
 
 def _read_service(
@@ -602,11 +688,26 @@ def _read_service(
             )
         seen[procedure.procedure_id] = procedure.name
 
+    # [Table 36 #3] configuration parameters are IEs of the SUC ConfigurationParameter
+    # below the Service IE, each joining a DataAssembly derived from ParameterElement.
+    config_parameters = _read_value_objects(
+        path,
+        root,
+        element,
+        assemblies,
+        suc_class=CONFIGURATION_PARAMETER_CLASS,
+        base_element_class=PARAMETER_ELEMENT_CLASS,
+        rule="#3",
+        label="configuration parameter",
+        context=f"service {control.tag_name!r}",
+    )
+
     return Service(
         name=control.tag_name,
         ref_id=ref_id,
         procedures=procedures,
         control=control,
+        config_parameters=config_parameters,
     )
 
 
@@ -682,12 +783,52 @@ def _read_procedure(
         if child.get("RefBaseSystemUnitPath") == PROCEDURE_PARAMETER_CLASS
     )
 
+    # [Table 36 #6/#7/#8] report values and procedure-level process values are IEs of
+    # their SUCs below this Procedure IE. Report values and outgoing process values
+    # both join an IndicatorElement DataAssembly; incoming ones join an InputElement.
+    report_values = _read_value_objects(
+        path,
+        root,
+        element,
+        assemblies,
+        suc_class=REPORT_VALUE_CLASS,
+        base_element_class=INDICATOR_ELEMENT_CLASS,
+        rule="#6",
+        label="report value",
+        context=f"procedure {name!r}",
+    )
+    process_values_in = _read_value_objects(
+        path,
+        root,
+        element,
+        assemblies,
+        suc_class=PROCESS_VALUE_IN_CLASS,
+        base_element_class=INPUT_ELEMENT_CLASS,
+        rule="#7",
+        label="incoming process value",
+        context=f"procedure {name!r}",
+    )
+    process_values_out = _read_value_objects(
+        path,
+        root,
+        element,
+        assemblies,
+        suc_class=PROCESS_VALUE_OUT_CLASS,
+        base_element_class=INDICATOR_ELEMENT_CLASS,
+        rule="#8",
+        label="outgoing process value",
+        context=f"procedure {name!r}",
+    )
+
     return ServiceProcedure(
         name=name,
         ref_id=ref_id,
         procedure_id=procedure_id,
         is_self_completing=flag,
         parameters=parameters,
+        report_values=report_values,
+        process_values_in=process_values_in,
+        process_values_out=process_values_out,
     )
 
 
@@ -725,6 +866,60 @@ def _read_procedure_parameter(
             f"{procedure_name!r} has no TagName on its DataAssembly, which is its name"
         )
     return ProcedureParameter(name=data.tag_name, ref_id=ref_id, data=data)
+
+
+def _read_value_objects(
+    path: Path,
+    root: etree._Element,
+    parent: etree._Element,
+    assemblies: dict[str, DataAssembly],
+    *,
+    suc_class: str,
+    base_element_class: str,
+    rule: str,
+    label: str,
+    context: str,
+) -> tuple[ValueObject, ...]:
+    """Read every value object of one kind directly below `parent`.
+
+    Covers the whole value model — ConfigurationParameter (#3), ReportValue (#6),
+    ProcessValueIn/Out (#7/#8, Table 42) — because [2658-4:2022] models them all the
+    same way (see the class-path block above). `suc_class` is matched **exactly** (the
+    "an IE of the SUC X" phrasing, like Service/Procedure); the joined DataAssembly is
+    checked to be **derived from** `base_element_class` (the "derived from the SUC X"
+    phrasing), resolved through the class library.
+    """
+    values = []
+    for element in caex._children(parent, "InternalElement"):
+        if element.get("RefBaseSystemUnitPath") != suc_class:
+            continue
+
+        ref_id = _read_ref_id(path, element, label)
+
+        # (b) joined by RefID to a DataAssembly derived from the base element SUC.
+        data = assemblies.get(ref_id)
+        if data is None:
+            raise MtpStructureError(
+                f"{path.name}: [2658-4:2022 Table 36 {rule}] the {label} with RefID "
+                f"{ref_id!r} ({context}) has no DataAssembly sharing that RefID in the "
+                "InstanceList"
+            )
+        if not caex.is_derived_from(root, data.class_path, base_element_class):
+            raise MtpStructureError(
+                f"{path.name}: [2658-4:2022 Table 36 {rule}] the {label} with RefID "
+                f"{ref_id!r} ({context}) joins a DataAssembly of {data.class_path!r}, "
+                f"which is not derived from {base_element_class!r}"
+            )
+
+        # (c) the value's name is the referenced DataAssembly's TagName.
+        if not data.tag_name:
+            raise MtpStructureError(
+                f"{path.name}: [2658-4:2022 Table 36 {rule}] a {label} ({context}) has no "
+                "TagName on its DataAssembly, which is its name"
+            )
+        values.append(ValueObject(name=data.tag_name, ref_id=ref_id, data=data))
+
+    return tuple(values)
 
 
 def _join_data_assembly(

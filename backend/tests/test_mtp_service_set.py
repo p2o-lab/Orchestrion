@@ -28,7 +28,7 @@ def hc30():
     return _prepare(manifest, root)
 
 
-def _prepare(manifest, root):
+def _prepare(manifest, root, aspect="ServiceSet"):
     communication = [
         ie
         for ie in caex._children(manifest.element, "InternalElement")
@@ -38,11 +38,14 @@ def _prepare(manifest, root):
     assemblies = parser.read_instance_list(ARTIFACT, root, communication, index)
 
     toc = caex.read_table_of_contents(ARTIFACT, root, manifest.element)
-    hierarchy = [e for e in toc if e.class_path.endswith("ServiceSet")][0].hierarchy
+    # endswith avoids matching "ServiceSet" against "ProcessValueSet" and vice versa.
+    hierarchy = [
+        e for e in toc if e.class_path.split("/")[-1] == aspect
+    ][0].hierarchy
     return root, hierarchy, assemblies
 
 
-def _mutable_hc30():
+def _mutable_hc30(aspect="ServiceSet"):
     """A deep copy, so a test can break the file without touching the fixture."""
     manifest = caex.load_manifest(ARTIFACT)
     tree = copy.deepcopy(manifest.element.getroottree())
@@ -56,7 +59,7 @@ def _mutable_hc30():
     class _M:
         element = module
 
-    return _prepare(_M, root)
+    return _prepare(_M, root, aspect)
 
 
 def test_reads_the_service(hc30):
@@ -220,3 +223,132 @@ def test_service_whose_ref_id_joins_nothing_raises(hc30):
 
     with pytest.raises(MtpStructureError, match="no DataAssembly sharing that RefID"):
         parser.read_service_set(ARTIFACT, root, hierarchy, assemblies)
+
+
+# ── The value model — [2658-4:2022] Table 36 #3/#6/#7/#8 + Table 42 ──────────────────
+
+
+@pytest.fixture
+def pvset():
+    """The ProcessValueSet's hierarchy plus the InstanceList it joins against."""
+    manifest = caex.load_manifest(ARTIFACT)
+    root = manifest.element.getroottree().getroot()
+    return _prepare(manifest, root, aspect="ProcessValueSet")
+
+
+def test_process_value_set_is_read(pvset):
+    """[Table 42 #2/#3] the PEA's cross-PEA process values, split in/out.
+
+    Out values join an IndicatorElement DataAssembly (a View); in values join an
+    InputElement one (a *ProcessValueIn). HC30 has 3 out and 1 in.
+    """
+    root, hierarchy, assemblies = pvset
+    incoming, outgoing = parser.read_process_value_set(
+        ARTIFACT, root, hierarchy, assemblies
+    )
+
+    assert {v.name for v in incoming} == {"HC30_Target_Full"}
+    assert {v.name for v in outgoing} == {
+        "HC30_Self_Full",
+        "HC30_FlowView_F13",
+        "HC30_LevelView_L10",
+    }
+    # #2d/#3d: name is the joined DataAssembly's TagName.
+    for value in (*incoming, *outgoing):
+        assert value.name == value.data.tag_name
+    # the derivation each kind requires (resolved through the class library).
+    assert all("/InputElement/" in v.data.class_path for v in incoming)
+    assert all("/IndicatorElement/" in v.data.class_path for v in outgoing)
+
+
+def test_read_mtp_populates_pea_process_values():
+    """The read_mtp wiring: the ProcessValueSet reaches the Pea object."""
+    pea = parser.read_mtp(ARTIFACT)
+
+    assert {v.name for v in pea.process_values_in} == {"HC30_Target_Full"}
+    assert len(pea.process_values_out) == 3
+
+
+def test_process_value_out_joining_wrong_base_raises():
+    """[Table 42 #3] an outgoing process value must join an IndicatorElement.
+
+    Point one at the ServiceControl DataAssembly (a ServiceElement, not an
+    IndicatorElement) and the derivation check must reject it rather than parse junk.
+    """
+    root, hierarchy, assemblies = _mutable_hc30(aspect="ProcessValueSet")
+    out_ie = [
+        ie
+        for ie in caex._children(hierarchy, "InternalElement")
+        if ie.get("RefBaseSystemUnitPath") == parser.PROCESS_VALUE_OUT_CLASS
+    ][0]
+    ref_id = [
+        a
+        for a in caex._children(out_ie, "Attribute")
+        if a.get("RefAttributeType") == parser.REF_ID_ATTRIBUTE_TYPE
+    ][0]
+    # eafec7c5… is the Stirring service's ServiceControl (ServiceElement, not Indicator).
+    caex._children(ref_id, "Value")[0].text = "eafec7c5-508c-4e3f-94ab-8c9b3ccc78c6"
+
+    with pytest.raises(MtpStructureError, match="not derived from"):
+        parser.read_process_value_set(ARTIFACT, root, hierarchy, assemblies)
+
+
+def _value_ie(suc_class: str, ref_id: str) -> etree._Element:
+    """A minimal value-object IE: an IE of `suc_class` carrying just a RefID link."""
+    ie = etree.Element("InternalElement")
+    ie.set("Name", "synthetic")
+    ie.set("RefBaseSystemUnitPath", suc_class)
+    attribute = etree.SubElement(ie, "Attribute")
+    attribute.set("RefAttributeType", parser.REF_ID_ATTRIBUTE_TYPE)
+    etree.SubElement(attribute, "Value").text = ref_id
+    return ie
+
+
+def test_configuration_parameter_and_report_value_read_generically(hc30):
+    """[Table 36 #3/#6] the two value kinds HC30 has no instance of.
+
+    HC30 declares no configuration parameters (#3) or report values (#6), so the exact
+    SUC strings for them are otherwise untested. Build one instance of each — an IE of
+    the real SUC, joined to a *real* HC30 DataAssembly of the base type each requires
+    (ParameterElement for #3, IndicatorElement for #6) — and confirm the generic reader
+    picks it up and names it by the DataAssembly's TagName.
+    """
+    root, _hierarchy, assemblies = hc30
+    param_ref = next(
+        rid for rid, a in assemblies.items() if a.class_path.endswith("AnaServParam")
+    )
+    indicator_ref = next(
+        rid for rid, a in assemblies.items() if "/IndicatorElement/" in a.class_path
+    )
+
+    # #3: a ConfigurationParameter joining a ParameterElement DataAssembly.
+    cfg_parent = etree.Element("InternalElement")
+    cfg_parent.append(_value_ie(parser.CONFIGURATION_PARAMETER_CLASS, param_ref))
+    configs = parser._read_value_objects(
+        ARTIFACT,
+        root,
+        cfg_parent,
+        assemblies,
+        suc_class=parser.CONFIGURATION_PARAMETER_CLASS,
+        base_element_class=parser.PARAMETER_ELEMENT_CLASS,
+        rule="#3",
+        label="configuration parameter",
+        context="synthetic service",
+    )
+    assert [c.name for c in configs] == [assemblies[param_ref].tag_name]
+
+    # #6: a ReportValue joining an IndicatorElement DataAssembly.
+    rv_parent = etree.Element("InternalElement")
+    rv_parent.append(_value_ie(parser.REPORT_VALUE_CLASS, indicator_ref))
+    reports = parser._read_value_objects(
+        ARTIFACT,
+        root,
+        rv_parent,
+        assemblies,
+        suc_class=parser.REPORT_VALUE_CLASS,
+        base_element_class=parser.INDICATOR_ELEMENT_CLASS,
+        rule="#6",
+        label="report value",
+        context="synthetic procedure",
+    )
+    assert [r.name for r in reports] == [assemblies[indicator_ref].tag_name]

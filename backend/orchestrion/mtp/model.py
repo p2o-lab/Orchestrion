@@ -147,6 +147,24 @@ class ProcedureParameter:
 
 
 @dataclass(frozen=True)
+class ValueObject:
+    """A named value that LinkedObject-references a DataAssembly.
+
+    One shape covers the whole value model — all are *"an IE of a specific SUC, joined
+    by RefID to a DataAssembly, named by that DataAssembly's TagName"*:
+      * ReportValue           — [2658-4:2022] Table 36 #6, live output during execution
+      * ProcessValueIn/Out    — Table 36 #7/#8 (per procedure) and Table 42 (per PEA)
+      * ConfigurationParameter— Table 36 #3, service-level config input
+    `data.nodes` holds the value channels (`V`, `VUnit`, `WQC`, …); `data.class_path`
+    gives the concrete kind (AnaView / BinView / …); node `access` gives read/write.
+    """
+
+    name: str
+    ref_id: str
+    data: "DataAssembly"
+
+
+@dataclass(frozen=True)
 class ServiceProcedure:
     """A selectable variant of a service.
 
@@ -170,6 +188,15 @@ class ServiceProcedure:
     parameters: tuple[ProcedureParameter, ...] = ()
     """[Table 36 #5] the procedure's input parameters (may be empty)."""
 
+    report_values: tuple[ValueObject, ...] = ()
+    """[Table 36 #6] live output values produced during EXECUTE (read-only)."""
+
+    process_values_in: tuple[ValueObject, ...] = ()
+    """[Table 36 #7] incoming process values acting on this procedure (POL→PEA)."""
+
+    process_values_out: tuple[ValueObject, ...] = ()
+    """[Table 36 #8] outgoing process values this procedure supplies (PEA→POL)."""
+
 
 @dataclass(frozen=True)
 class Service:
@@ -189,6 +216,9 @@ class Service:
     """The `ServiceControl` DataAssembly sharing this service's `ref_id`
     ([2658-4:2022] Table 13). `None` only if the file omits it — which a
     conformant 1.1.0 file does not, but MTPPy's draft-era output can."""
+
+    config_parameters: tuple[ValueObject, ...] = ()
+    """[Table 36 #3] service-level configuration parameters (may be empty)."""
 
 
 @dataclass(frozen=True)
@@ -231,3 +261,16 @@ class Pea:
 
     endpoints: tuple[Endpoint, ...]
     services: tuple[Service, ...]
+
+    # ── PEA-wide process values — [2658-4:2022] §9.2, Table 42 ───────────────────
+    #
+    # The ProcessValueSet aspect: process values interconnected across PEAs,
+    # independent of any service's mode or state (§6.3.1). A value related to a
+    # service/procedure is *also* modelled below that procedure (§9.2.1, shared
+    # RefID), so the same DataAssembly can appear both here and on a ServiceProcedure.
+
+    process_values_in: tuple[ValueObject, ...] = ()
+    """[Table 42 #2] incoming process values the PEA accepts (POL→PEA)."""
+
+    process_values_out: tuple[ValueObject, ...] = ()
+    """[Table 42 #3] outgoing process values the PEA supplies (PEA→POL)."""
