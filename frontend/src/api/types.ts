@@ -30,16 +30,31 @@ export interface Parameter {
   kind: string // 'analog' | 'integer' | 'binary' | 'string'
 }
 
+// A value's static descriptor — mirrors ValueSchema. The live number arrives on the
+// WebSocket keyed by `name`; this says what kind it is and which way it flows.
+export interface ValueDescriptor {
+  name: string
+  kind: string // 'analog' | 'integer' | 'binary' | 'string'
+  direction: 'in' | 'out'
+  writable: boolean
+}
+
+// A live value's current reading (number for analog/integer, boolean for binary).
+export type LiveValue = number | boolean | string
+
 export interface Procedure {
   name: string
   procedure_id: number
   is_self_completing: boolean
   parameters: Parameter[]
+  report_values: ValueDescriptor[]
+  process_values: ValueDescriptor[]
 }
 
 export interface Service {
   name: string
   procedures: Procedure[]
+  config_parameters: ValueDescriptor[]
   control_nodes: NodeInfo[]
 }
 
@@ -50,6 +65,7 @@ export interface PeaDetail extends PeaSummary {
   manufacturer_uri: string
   product_code: string
   services: Service[]
+  process_values: ValueDescriptor[]
 }
 
 // Live-state messages over the WebSocket (backend/orchestrion/api/live.py).
@@ -59,6 +75,8 @@ export type LiveMessage =
       connected: boolean
       states: Record<string, string>
       command_en: Record<string, string[]>
+      values: Record<string, LiveValue>
     }
   | { type: 'update'; service: string; state?: string; command_en?: string[] }
+  | { type: 'update'; name: string; value: LiveValue }
   | { type: 'error'; detail: string }

@@ -3,7 +3,7 @@
 // service, and reports the connection status. One socket per mounted PEA view.
 
 import { useEffect, useRef, useState } from 'react'
-import type { LiveMessage } from '../api/types'
+import type { LiveMessage, LiveValue } from '../api/types'
 
 export type LiveStatus = 'connecting' | 'live' | 'error' | 'closed'
 
@@ -12,10 +12,11 @@ export interface LiveState {
   error: string | null
   states: Record<string, string> // service -> ServiceState name
   commandEn: Record<string, string[]> // service -> enabled Command names
+  values: Record<string, LiveValue> // value TagName -> current reading
 }
 
-const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {} }
-const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {} }
+const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {}, values: {} }
+const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {}, values: {} }
 
 export function useLiveState(peaId: number | null, enabled: boolean): LiveState {
   const [live, setLive] = useState<LiveState>(CLOSED)
@@ -38,9 +39,18 @@ export function useLiveState(peaId: number | null, enabled: boolean): LiveState 
       const msg = JSON.parse(event.data) as LiveMessage
       setLive((prev) => {
         if (msg.type === 'snapshot') {
-          return { status: 'live', error: null, states: msg.states, commandEn: msg.command_en }
+          return {
+            status: 'live',
+            error: null,
+            states: msg.states,
+            commandEn: msg.command_en,
+            values: msg.values,
+          }
         }
         if (msg.type === 'update') {
+          if ('name' in msg) {
+            return { ...prev, values: { ...prev.values, [msg.name]: msg.value } }
+          }
           const states = msg.state ? { ...prev.states, [msg.service]: msg.state } : prev.states
           const commandEn = msg.command_en
             ? { ...prev.commandEn, [msg.service]: msg.command_en }

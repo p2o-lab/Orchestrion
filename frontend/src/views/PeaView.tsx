@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { PeaDetail, Service } from '../api/types'
+import type { LiveValue, PeaDetail, Service } from '../api/types'
 import { useLiveState } from '../hooks/useLiveState'
 import { Button, Card, Spinner } from '../ui/primitives'
 import { StatePill } from '../ui/StatePill'
 import { Icon } from '../ui/icons'
+import { ValueGrid } from '../ui/values'
 
 export function PeaView() {
   const { projectId, peaId } = useParams()
@@ -102,6 +103,20 @@ export function PeaView() {
 
       <Identification pea={pea} />
 
+      {pea.process_values.length > 0 && (
+        <>
+          <div className="mb-3 mt-8 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">
+            <Icon name="signal" size={14} /> Process values
+            <span className="font-normal normal-case tracking-normal text-faint/70">
+              · cross-PEA, live regardless of service state
+            </span>
+          </div>
+          <Card className="p-5 animate-fade-in">
+            <ValueGrid values={pea.process_values} live={live.values} />
+          </Card>
+        </>
+      )}
+
       <div className="mb-3 mt-8 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">
         <Icon name="module" size={14} /> Services
       </div>
@@ -113,6 +128,7 @@ export function PeaView() {
               service={s}
               state={live.states[s.name]}
               enabled={new Set(live.commandEn[s.name] ?? [])}
+              values={live.values}
               connected={connected && live.status === 'live'}
             />
           </div>
@@ -170,12 +186,14 @@ function ServiceCard({
   service,
   state,
   enabled,
+  values: live,
   connected,
 }: {
   peaId: number
   service: Service
   state: string | undefined
   enabled: Set<string>
+  values: Record<string, LiveValue>
   connected: boolean
 }) {
   const [showNodes, setShowNodes] = useState(false)
@@ -185,6 +203,9 @@ function ServiceCard({
   const [error, setError] = useState<string | null>(null)
 
   const selectedProc = service.procedures.find((p) => p.procedure_id === procedure)
+  const readouts = selectedProc
+    ? [...selectedProc.report_values, ...selectedProc.process_values]
+    : []
 
   async function run() {
     setBusy('RUN')
@@ -233,6 +254,14 @@ function ServiceCard({
           </span>
         )}
       </div>
+
+      {/* service-level configuration parameters (§6.2.4.3) */}
+      {service.config_parameters.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Configuration</div>
+          <ValueGrid values={service.config_parameters} live={live} />
+        </div>
+      )}
 
       {/* run: pick a procedure (click a card) + start */}
       <div className="mt-6">
@@ -305,6 +334,18 @@ function ServiceCard({
           )}
         </div>
       </div>
+
+      {/* live readouts for the selected procedure — report values (#6) + process
+          values (#7/#8). Live during EXECUTE; report values freeze at Completed/
+          Stopped/Aborted (§6.2.5). Empty for procedures that declare none. */}
+      {readouts.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">
+            Live readouts · {selectedProc?.name}
+          </div>
+          <ValueGrid values={readouts} live={live} />
+        </div>
+      )}
 
       {/* command buttons (enabled strictly from live CommandEn) */}
       <div className="mt-6">
