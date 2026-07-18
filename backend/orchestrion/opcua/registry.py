@@ -25,6 +25,7 @@ class LiveState:
     connected: bool
     states: dict[str, str]
     command_en: dict[str, list[str]]
+    values: dict[str, object]
 
 
 @dataclass
@@ -32,6 +33,7 @@ class _Entry:
     connection: PeaConnection
     states: dict[str, ServiceState] = field(default_factory=dict)
     command_en: dict[str, frozenset[Command]] = field(default_factory=dict)
+    values: dict[str, object] = field(default_factory=dict)
     listeners: set[asyncio.Queue] = field(default_factory=set)
     subscription: object | None = None
     health_task: asyncio.Task | None = None
@@ -41,6 +43,7 @@ class _Entry:
             connected=True,
             states={s: st.name for s, st in self.states.items()},
             command_en={s: [c.name for c in cs] for s, cs in self.command_en.items()},
+            values=dict(self.values),
         )
 
     def broadcast(self, message: dict) -> None:
@@ -58,6 +61,10 @@ class _Entry:
             {"kind": "command_en", "service": service,
              "command_en": [c.name for c in commands]}
         )
+
+    def on_value(self, name: str, value: object) -> None:
+        self.values[name] = value
+        self.broadcast({"kind": "value", "name": name, "value": value})
 
 
 class PeaRegistry:
@@ -90,7 +97,9 @@ class PeaRegistry:
         await connection.connect()  # OpcUaConnectionError if the PEA is unreachable
         entry = _Entry(connection=connection)
         entry.subscription = await connection.subscribe_service_state(
-            entry.on_state, on_command_en=entry.on_command_en
+            entry.on_state,
+            on_command_en=entry.on_command_en,
+            on_value=entry.on_value,
         )
         entry.health_task = asyncio.create_task(self._health_loop(pea_id))
         self._entries[pea_id] = entry

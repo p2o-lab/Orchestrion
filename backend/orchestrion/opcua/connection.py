@@ -17,7 +17,7 @@ from types import TracebackType
 
 from asyncua import Client, ua
 
-from orchestrion.mtp.model import IdentifierType, OpcUaNode, Pea, Service
+from orchestrion.mtp.model import IdentifierType, OpcUaNode, Pea, Service, ValueObject
 from orchestrion.state.codes import (
     Command,
     ServiceState,
@@ -205,18 +205,26 @@ class PeaConnection:
         on_state: Callable[[str, ServiceState], None],
         *,
         on_command_en: Callable[[str, frozenset[Command]], None] | None = None,
+        on_value: Callable[[str, object], None] | None = None,
         period_ms: int = 200,
     ) -> "StateSubscription":
-        """Subscribe to every service's live `StateCur` (and optionally `CommandEn`).
+        """Subscribe to every service's live `StateCur` (and optionally `CommandEn`),
+        and — when `on_value` is given — every value object's live `V` channel.
 
         `on_state(service_name, ServiceState)` fires on each StateCur datachange — the
         M2 mechanism: the PEA pushes, the POL reacts (research §3, plan §3). The initial
         value is delivered once on subscribe. A StateCur the PEA sends that is not in
         Table 14 is logged and skipped, never crashes the handler.
+
+        `on_value(value_name, raw)` fires on each datachange of a value object's `V`
+        (§6.3 process values, #3 config params, #6 report values). Values are keyed by
+        TagName, which is unique in the InstanceList ([2658-1:2022] Table 37 #19f), so a
+        value modelled at both PEA and procedure level (shared RefID, §9.2.1) is one
+        stream, not two. All value kinds share one subscription.
         """
         if not self._connected:
             raise OpcUaConnectionError("not connected")
-        handler = _StateHandler(on_state, on_command_en)
+        handler = _StateHandler(on_state, on_command_en, on_value)
         subscription = await self._client.create_subscription(period_ms, handler)
 
         for service in self._pea.services:
@@ -233,7 +241,38 @@ class PeaConnection:
                 handler.register(en_node.nodeid, service.name, _StateHandler.COMMAND_EN)
                 await subscription.subscribe_data_change(en_node)
 
+        if on_value is not None:
+            for name, value in self._all_value_objects().items():
+                node = value.data.nodes.get("V")
+                if node is None:
+                    continue  # a value with no live value channel — nothing to stream
+                v_node = self._client.get_node(self.node_id(node))
+                handler.register(v_node.nodeid, name, _StateHandler.VALUE)
+                await subscription.subscribe_data_change(v_node)
+
         return StateSubscription(subscription)
+
+    def _all_value_objects(self) -> dict[str, ValueObject]:
+        """Every value object the PEA exposes, keyed by TagName (deduped).
+
+        PEA-wide process values (§6.3), per-service config params (#3), and per-procedure
+        report/process values (#6/#7/#8). A value at both PEA and procedure level shares
+        a TagName, so `setdefault` keeps it a single entry.
+        """
+        result: dict[str, ValueObject] = {}
+        for value in (*self._pea.process_values_in, *self._pea.process_values_out):
+            result.setdefault(value.name, value)
+        for service in self._pea.services:
+            for value in service.config_parameters:
+                result.setdefault(value.name, value)
+            for procedure in service.procedures:
+                for value in (
+                    *procedure.report_values,
+                    *procedure.process_values_in,
+                    *procedure.process_values_out,
+                ):
+                    result.setdefault(value.name, value)
+        return result
 
     def _state_node(self, service: Service) -> OpcUaNode:
         if service.control is None or "StateCur" not in service.control.nodes:
@@ -243,13 +282,35 @@ class PeaConnection:
         return service.control.nodes["StateCur"]
 
     def _pea_namespaces(self) -> set[str]:
-        """Every distinct namespace URI referenced by the PEA's service nodes."""
+        """Every distinct namespace URI referenced by any node the POL will address.
+
+        Not just the ServiceControl: procedure parameters (M3-3b), config parameters,
+        report values and process values are all addressed too, so every one's namespace
+        must be resolved at connect (a URI in an unresolved namespace fails at use). HC30
+        keeps everything in one namespace, which had masked the narrower earlier scope.
+        """
         uris: set[str] = set()
-        for service in self._pea.services:
-            if service.control is None:
-                continue
-            for opc_node in service.control.nodes.values():
+
+        def add(nodes: dict[str, OpcUaNode]) -> None:
+            for opc_node in nodes.values():
                 uris.add(opc_node.namespace)
+
+        for service in self._pea.services:
+            if service.control is not None:
+                add(service.control.nodes)
+            for value in service.config_parameters:
+                add(value.data.nodes)
+            for procedure in service.procedures:
+                for parameter in procedure.parameters:
+                    add(parameter.data.nodes)
+                for value in (
+                    *procedure.report_values,
+                    *procedure.process_values_in,
+                    *procedure.process_values_out,
+                ):
+                    add(value.data.nodes)
+        for value in (*self._pea.process_values_in, *self._pea.process_values_out):
+            add(value.data.nodes)
         return uris
 
 
@@ -268,15 +329,18 @@ class _StateHandler:
 
     STATE = "state"
     COMMAND_EN = "command_en"
+    VALUE = "value"
 
     def __init__(
         self,
         on_state: Callable[[str, ServiceState], None],
         on_command_en: Callable[[str, frozenset[Command]], None] | None,
+        on_value: Callable[[str, object], None] | None = None,
     ) -> None:
         self._on_state = on_state
         self._on_command_en = on_command_en
-        self._routes: dict[str, tuple[str, str]] = {}  # nodeid str -> (service, kind)
+        self._on_value = on_value
+        self._routes: dict[str, tuple[str, str]] = {}  # nodeid str -> (name, kind)
 
     def register(self, nodeid: ua.NodeId, service_name: str, kind: str) -> None:
         self._routes[nodeid.to_string()] = (service_name, kind)
@@ -290,13 +354,15 @@ class _StateHandler:
         route = self._routes.get(node.nodeid.to_string())
         if route is None:
             return
-        service_name, kind = route
+        name, kind = route
         if kind == self.STATE:
             try:
                 state = decode_state(int(value))
             except UnknownServiceState as exc:
-                logger.warning("%s: %s", service_name, exc)
+                logger.warning("%s: %s", name, exc)
                 return
-            self._on_state(service_name, state)
+            self._on_state(name, state)
         elif kind == self.COMMAND_EN and self._on_command_en is not None:
-            self._on_command_en(service_name, decode_command_en(int(value)))
+            self._on_command_en(name, decode_command_en(int(value)))
+        elif kind == self.VALUE and self._on_value is not None:
+            self._on_value(name, value)

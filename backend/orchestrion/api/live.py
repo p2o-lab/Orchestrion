@@ -37,8 +37,13 @@ def _load_model(session: Session, pea_id: int) -> PeaModel:
 
 def _payload(snapshot) -> dict:
     if snapshot is None:
-        return {"connected": False, "states": {}, "command_en": {}}
-    return {"connected": True, "states": snapshot.states, "command_en": snapshot.command_en}
+        return {"connected": False, "states": {}, "command_en": {}, "values": {}}
+    return {
+        "connected": True,
+        "states": snapshot.states,
+        "command_en": snapshot.command_en,
+        "values": snapshot.values,
+    }
 
 
 @router.get("/api/peas/{pea_id}/live")
@@ -63,7 +68,7 @@ async def connect_pea(pea_id: int, session: Session = Depends(get_session)) -> d
 async def disconnect_pea(pea_id: int, session: Session = Depends(get_session)) -> dict:
     _load_model(session, pea_id)  # 404 if unknown
     await registry.disconnect(pea_id)
-    return {"connected": False, "states": {}, "command_en": {}}
+    return {"connected": False, "states": {}, "command_en": {}, "values": {}}
 
 
 @router.websocket("/api/peas/{pea_id}/ws")
@@ -74,13 +79,16 @@ async def pea_ws(websocket: WebSocket, pea_id: int) -> None:
     snapshot = registry.snapshot(pea_id)
     if snapshot is None:
         # Not connected — nothing to stream. Tell the viewer and close.
-        await websocket.send_json({"type": "snapshot", "connected": False, "states": {}, "command_en": {}})
+        await websocket.send_json(
+            {"type": "snapshot", "connected": False, "states": {},
+             "command_en": {}, "values": {}}
+        )
         await websocket.close()
         return
 
     await websocket.send_json(
         {"type": "snapshot", "connected": True, "states": snapshot.states,
-         "command_en": snapshot.command_en}
+         "command_en": snapshot.command_en, "values": snapshot.values}
     )
 
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
@@ -94,14 +102,20 @@ async def pea_ws(websocket: WebSocket, pea_id: int) -> None:
                 get.cancel()
                 break  # client disconnected
             message = get.result()
-            if message.get("kind") == "closed":
+            kind = message.get("kind")
+            if kind == "closed":
                 # The registry dropped the connection (PEA died) — tell the viewer.
                 await websocket.send_json({"type": "error", "detail": message.get("detail", "")})
                 break
+            if kind == "value":
+                await websocket.send_json(
+                    {"type": "update", "name": message["name"], "value": message["value"]}
+                )
+                continue
             await websocket.send_json(
                 {"type": "update", "service": message["service"],
-                 **({"state": message["state"]} if message["kind"] == "state" else {}),
-                 **({"command_en": message["command_en"]} if message["kind"] == "command_en" else {})}
+                 **({"state": message["state"]} if kind == "state" else {}),
+                 **({"command_en": message["command_en"]} if kind == "command_en" else {})}
             )
     except WebSocketDisconnect:
         pass
