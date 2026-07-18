@@ -243,9 +243,13 @@ class PeaConnection:
 
         if on_value is not None:
             for name, value in self._all_value_objects().items():
-                node = value.data.nodes.get("V")
+                # The live-value channel differs by element type: IndicatorElement
+                # (*View) and InputElement (*ProcessValue) carry `V`; ParameterElement
+                # (*ServParam — config/procedure params) carries the applied `VOut`
+                # from controlled value assignment (§8.1.3), never a plain `V`.
+                node = value.data.nodes.get("V") or value.data.nodes.get("VOut")
                 if node is None:
-                    continue  # a value with no live value channel — nothing to stream
+                    continue  # a value with no readable channel — nothing to stream
                 v_node = self._client.get_node(self.node_id(node))
                 handler.register(v_node.nodeid, name, _StateHandler.VALUE)
                 await subscription.subscribe_data_change(v_node)

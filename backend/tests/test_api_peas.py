@@ -84,6 +84,31 @@ def test_pea_detail_exposes_services_procedures_and_nodes(client, project):
     assert statecur["identifier_type"] == "STRING"
 
 
+def test_pea_detail_exposes_the_value_model(client, project):
+    """PEA-wide process values carry kind/direction/writable for the UI to render."""
+    pea_id = _import(client, project).json()["id"]
+    detail = client.get(f"/api/peas/{pea_id}").json()
+
+    values = {v["name"]: v for v in detail["process_values"]}
+    assert set(values) == {
+        "HC30_Target_Full", "HC30_Self_Full", "HC30_FlowView_F13", "HC30_LevelView_L10",
+    }
+    # the incoming one is writable (POL→PEA); outgoing ones are read-only.
+    assert values["HC30_Target_Full"] == {
+        "name": "HC30_Target_Full", "kind": "binary", "direction": "in", "writable": True,
+    }
+    assert values["HC30_FlowView_F13"]["kind"] == "analog"
+    assert values["HC30_FlowView_F13"]["direction"] == "out"
+    assert values["HC30_FlowView_F13"]["writable"] is False
+
+    # HC30 declares no config params / report values — the fields exist and are empty.
+    service = detail["services"][0]
+    assert service["config_parameters"] == []
+    for procedure in service["procedures"]:
+        assert procedure["report_values"] == []
+        assert procedure["process_values"] == []
+
+
 def test_rename_and_delete_pea(client, project):
     pea_id = _import(client, project).json()["id"]
     assert client.patch(f"/api/peas/{pea_id}", json={"name": "Mixer"}).json()["name"] == "Mixer"

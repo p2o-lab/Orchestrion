@@ -62,16 +62,32 @@ class ParameterSchema(BaseModel):
     kind: str  # 'analog' | 'integer' | 'binary' | 'string' — picks the UI input
 
 
+class ValueSchema(BaseModel):
+    """A value's static descriptor — the shape the UI needs to render it.
+
+    The live *number* arrives on the WebSocket keyed by `name`; this is everything
+    else: what kind it is, which way it flows, and whether the operator may set it.
+    """
+
+    name: str
+    kind: str          # 'analog' | 'integer' | 'binary' | 'string'
+    direction: str     # 'in' (POL→PEA) | 'out' (PEA→POL)
+    writable: bool     # in-values are set by the POL; out-values are display-only
+
+
 class ProcedureSchema(BaseModel):
     name: str
     procedure_id: int
     is_self_completing: bool
     parameters: list[ParameterSchema]
+    report_values: list[ValueSchema]      # [2658-4] #6 — live/read-only during EXECUTE
+    process_values: list[ValueSchema]     # #7/#8 — in+out, tied to this procedure
 
 
 class ServiceSchema(BaseModel):
     name: str
     procedures: list[ProcedureSchema]
+    config_parameters: list[ValueSchema]  # #3 — service-level configuration inputs
     control_nodes: list[NodeSchema]
 
 
@@ -84,6 +100,7 @@ class PeaDetail(PeaSummary):
     manufacturer_uri: str
     product_code: str
     services: list[ServiceSchema]
+    process_values: list[ValueSchema]     # Table 42 — the PEA-wide ProcessValueSet
 
 
 class ImportError(BaseModel):
@@ -110,32 +127,52 @@ def _service(service: model.Service) -> ServiceSchema:
         ]
     return ServiceSchema(
         name=service.name,
-        procedures=[
-            ProcedureSchema(
-                name=p.name,
-                procedure_id=p.procedure_id,
-                is_self_completing=p.is_self_completing,
-                parameters=[
-                    ParameterSchema(name=par.name, kind=_parameter_kind(par))
-                    for par in p.parameters
-                ],
-            )
-            for p in service.procedures
-        ],
+        procedures=[_procedure(p) for p in service.procedures],
+        config_parameters=[_value(v, "in", writable=True) for v in service.config_parameters],
         control_nodes=control_nodes,
     )
 
 
-def _parameter_kind(parameter: model.ProcedureParameter) -> str:
-    """Map the parameter's DataAssembly class to a UI input kind."""
-    cp = parameter.data.class_path
-    if cp.endswith("AnaServParam"):
+def _procedure(procedure: model.ServiceProcedure) -> ProcedureSchema:
+    return ProcedureSchema(
+        name=procedure.name,
+        procedure_id=procedure.procedure_id,
+        is_self_completing=procedure.is_self_completing,
+        parameters=[
+            ParameterSchema(name=par.name, kind=_value_kind(par.data.class_path))
+            for par in procedure.parameters
+        ],
+        report_values=[_value(v, "out", writable=False) for v in procedure.report_values],
+        process_values=[
+            *[_value(v, "in", writable=True) for v in procedure.process_values_in],
+            *[_value(v, "out", writable=False) for v in procedure.process_values_out],
+        ],
+    )
+
+
+def _value(value: model.ValueObject, direction: str, *, writable: bool) -> ValueSchema:
+    return ValueSchema(
+        name=value.name,
+        kind=_value_kind(value.data.class_path),
+        direction=direction,
+        writable=writable,
+    )
+
+
+def _value_kind(class_path: str) -> str:
+    """Map a value DataAssembly's class to a UI kind, from the concrete leaf name.
+
+    Covers every value element by its type prefix — AnaView/AnaServParam/
+    AnaProcessValueIn → analog, DInt* → integer, Bin* → binary, String* → string.
+    """
+    leaf = class_path.rsplit("/", 1)[-1]
+    if leaf.startswith("Ana"):
         return "analog"
-    if cp.endswith("DIntServParam"):
+    if leaf.startswith("DInt"):
         return "integer"
-    if cp.endswith("BinServParam"):
+    if leaf.startswith("Bin"):
         return "binary"
-    if cp.endswith("StringServParam"):
+    if leaf.startswith("String"):
         return "string"
     return "analog"
 
@@ -149,4 +186,8 @@ def pea_detail(summary: PeaSummary, parsed: model.Pea) -> PeaDetail:
         manufacturer_uri=parsed.manufacturer_uri,
         product_code=parsed.product_code,
         services=[_service(s) for s in parsed.services],
+        process_values=[
+            *[_value(v, "in", writable=True) for v in parsed.process_values_in],
+            *[_value(v, "out", writable=False) for v in parsed.process_values_out],
+        ],
     )
