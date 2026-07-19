@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 
+from orchestrion.events import EventKind, EventLog
 from orchestrion.mtp.model import Pea
 from orchestrion.opcua.connection import PeaConnection
 from orchestrion.state.codes import Command, ServiceState
@@ -32,6 +33,8 @@ class LiveState:
 @dataclass
 class _Entry:
     connection: PeaConnection
+    pea_id: int
+    log: EventLog
     states: dict[str, ServiceState] = field(default_factory=dict)
     command_en: dict[str, frozenset[Command]] = field(default_factory=dict)
     values: dict[str, object] = field(default_factory=dict)
@@ -55,8 +58,19 @@ class _Entry:
                 queue.put_nowait(message)
 
     def on_state(self, service: str, state: ServiceState) -> None:
+        previous = self.states.get(service)
         self.states[service] = state
         self.broadcast({"kind": "state", "service": service, "state": state.name})
+        # [2658-4:2022 Table 14] log an actual transition only. The first callback after
+        # subscribe delivers the initial state (previous is None) — an observation, not a
+        # transition — so it is not logged; the live panel already shows current state.
+        # State names come from state/codes.py (Table-14-verified), never re-spelt here.
+        if previous is not None and previous != state:
+            self.log.record(
+                self.pea_id,
+                EventKind.STATE_TRANSITION,
+                f"{service}: {previous.name} → {state.name}",
+            )
 
     def on_command_en(self, service: str, commands: frozenset[Command]) -> None:
         self.command_en[service] = commands
@@ -75,9 +89,26 @@ class PeaRegistry:
 
     def __init__(self) -> None:
         self._entries: dict[int, _Entry] = {}
+        # The event log outlives any single connection: it is the session timeline, so a
+        # disconnect/reconnect keeps its history (Step 3 will log both). In-memory only
+        # (plan §4) — one store for the app's lifetime, like the registry itself.
+        self._log = EventLog()
 
     def is_connected(self, pea_id: int) -> bool:
         return pea_id in self._entries
+
+    def event_snapshot(self, pea_id: int) -> list[dict[str, object]]:
+        """This PEA's recent logged events, oldest first (wire form). Seeds a WS
+        viewer (Step 4) and lets tests assert what was recorded."""
+        return self._log.snapshot(pea_id)
+
+    def record_event(
+        self, pea_id: int, kind: EventKind, message: str, detail: str | None = None
+    ) -> None:
+        """Record a POL-initiated event — connect/disconnect (here), commands and value
+        writes (from `api/control.py`). The single entry point so Step 4 can add WS
+        broadcasting to listeners in exactly one place."""
+        self._log.record(pea_id, kind, message, detail)
 
     def snapshot(self, pea_id: int) -> LiveState | None:
         entry = self._entries.get(pea_id)
@@ -98,7 +129,7 @@ class PeaRegistry:
 
         connection = PeaConnection(pea)
         await connection.connect()  # OpcUaConnectionError if the PEA is unreachable
-        entry = _Entry(connection=connection)
+        entry = _Entry(connection=connection, pea_id=pea_id, log=self._log)
         entry.value_meta = await connection.read_value_metadata()  # scaling/unit, once
         entry.subscription = await connection.subscribe_service_state(
             entry.on_state,
@@ -107,12 +138,17 @@ class PeaRegistry:
         )
         entry.health_task = asyncio.create_task(self._health_loop(pea_id))
         self._entries[pea_id] = entry
+        # Fresh connection only — the idempotent-reuse path above returns before here, so
+        # a re-connect while already live is not logged twice.
+        self.record_event(pea_id, EventKind.CONNECTION, "connected", detail=connection.url)
         return entry.snapshot()
 
     async def disconnect(self, pea_id: int) -> None:
         entry = self._entries.get(pea_id)
         if entry is not None and entry.health_task is not None:
             entry.health_task.cancel()
+        if entry is not None:
+            self.record_event(pea_id, EventKind.CONNECTION, "disconnected")
         await self._drop(pea_id)
 
     def add_listener(self, pea_id: int, queue: asyncio.Queue) -> None:
@@ -139,6 +175,9 @@ class PeaRegistry:
                 if entry is None:
                     return
                 if not await entry.connection.is_alive():
+                    self.record_event(
+                        pea_id, EventKind.CONNECTION, "connection to the PEA was lost"
+                    )
                     entry.broadcast({"kind": "closed", "detail": "connection to the PEA was lost"})
                     self._entries.pop(pea_id, None)
                     await self._teardown(entry)  # not disconnect(): don't cancel self

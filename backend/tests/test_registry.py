@@ -150,6 +150,95 @@ def test_write_incoming_process_value_round_trips(tmp_path):
     assert asyncio.run(scenario())
 
 
+def test_state_transitions_are_logged_as_events(tmp_path):
+    """M4 Step 2: the registry records each StateCur transition into the event log.
+
+    Drives real transitions against the VirtualPEA (one loop) and asserts the log. The
+    subscription may or may not sample a fast transient state (e.g. STARTING), so this
+    asserts the durable endpoints of each transition (→ EXECUTE, → STOPPED), never a
+    specific intermediate — robust to the sampling rate.
+    """
+    from orchestrion.opcua import control
+    from orchestrion.state.codes import Command
+
+    aml = _aml_on_port(tmp_path, 48115)
+
+    async def _wait_state(registry, target: str, timeout=10.0):
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            if registry.snapshot(1).states.get("Stirring") == target:
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            pea = read_mtp(aml)
+            await registry.connect(1, pea)
+            service = pea.services[0]
+            conn = registry.connection(1)
+
+            await control.start_service(conn, service, procedure_id=1)  # Continous
+            assert await _wait_state(registry, "EXECUTE")
+            await control.command_service(conn, service, Command.STOP)
+            assert await _wait_state(registry, "STOPPED")
+            await asyncio.sleep(0.3)  # let the last datachange land
+
+            # the log also holds the "connected" CONNECTION event (Step 3); isolate the
+            # state transitions for this assertion.
+            transitions = [
+                e for e in registry.event_snapshot(1) if e["kind"] == "state_transition"
+            ]
+            assert transitions, "expected state-transition events to be logged"
+            # each transition carries an arrow (the initial IDLE observation is NOT
+            # logged — only real transitions are)
+            assert all(" → " in str(e["message"]) for e in transitions)
+            messages = [str(e["message"]) for e in transitions]
+            assert any(m.endswith("→ EXECUTE") for m in messages), messages
+            assert any(m.endswith("→ STOPPED") for m in messages), messages
+            # the first transition leaves the initial IDLE state
+            assert messages[0].startswith("Stirring: IDLE → "), messages
+        finally:
+            await registry.shutdown()
+            await server.stop()
+        return True
+
+    assert asyncio.run(scenario())
+
+
+def test_connect_and_disconnect_are_logged(tmp_path):
+    """M4 Step 3: connect/disconnect are recorded as CONNECTION events, in order, and
+    the log survives the disconnect (it is the session timeline, not per-connection)."""
+    aml = _aml_on_port(tmp_path, 48116)
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            pea = read_mtp(aml)
+            await registry.connect(1, pea)
+            await registry.disconnect(1)
+
+            events = registry.event_snapshot(1)  # kept after disconnect
+            assert all(e["kind"] == "connection" for e in events)
+            messages = [str(e["message"]) for e in events]
+            assert "connected" in messages
+            assert "disconnected" in messages
+            assert messages.index("connected") < messages.index("disconnected")
+        finally:
+            await registry.shutdown()
+            await server.stop()
+        return True
+
+    assert asyncio.run(scenario())
+
+
 def test_health_loop_drops_a_dead_connection(tmp_path):
     aml = _aml_on_port(tmp_path, 48111)
 
@@ -169,6 +258,9 @@ def test_health_loop_drops_a_dead_connection(tmp_path):
                 if not registry.is_connected(1):
                     break
             assert not registry.is_connected(1)
+            # the drop is logged as a CONNECTION event (M4 Step 3)
+            messages = [str(e["message"]) for e in registry.event_snapshot(1)]
+            assert "connection to the PEA was lost" in messages
         finally:
             await registry.shutdown()
         return True

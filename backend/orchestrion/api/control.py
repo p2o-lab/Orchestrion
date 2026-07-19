@@ -15,6 +15,7 @@ from orchestrion.api.live import registry
 from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea
+from orchestrion.events import EventKind
 from orchestrion.mtp.model import Pea as PeaModel, Service, ValueObject
 from orchestrion.opcua import control
 from orchestrion.opcua.connection import OpcUaConnectionError
@@ -87,6 +88,14 @@ async def start(
         await control.start_service(conn, service, body.procedure_id, body.values)
     except control.ServiceControlError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # [2658-4:2022 §8.2.2.5] Start with the selected procedure — an operator action.
+    procedure = next(
+        (p for p in service.procedures if p.procedure_id == body.procedure_id), None
+    )
+    procedure_label = procedure.name if procedure is not None else str(body.procedure_id)
+    registry.record_event(
+        pea_id, EventKind.COMMAND, f"{service.name}: Start {procedure_label}"
+    )
     return {"ok": True}
 
 
@@ -109,6 +118,8 @@ async def command(
         await control.command_service(conn, service, cmd)
     except control.ServiceControlError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # [2658-4:2022 §8.2.2.3] a command the POL issued on CommandExt — an operator action.
+    registry.record_event(pea_id, EventKind.COMMAND, f"{service.name}: {cmd.name}")
     return {"ok": True}
 
 
@@ -125,4 +136,6 @@ async def write_value(
         await control.write_process_value(conn, value, body.value)
     except (control.ServiceControlError, OpcUaConnectionError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # [2658-4:2022 §6.3.3] the POL wrote an incoming process value — an operator action.
+    registry.record_event(pea_id, EventKind.VALUE_WRITE, f"{value_name} := {body.value}")
     return {"ok": True}
