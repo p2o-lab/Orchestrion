@@ -174,6 +174,15 @@ def test_control_requires_a_connection(running_pea):
     r = client.post(f"/api/peas/{pea_id}/services/Stirring/command", json={"command": "STOP"})
     assert r.status_code == 409
 
+
+def test_write_value_guards(running_pea):
+    """A value write 404s for a non-writable value and 409s when not connected."""
+    client, pea_id, _ = running_pea  # not connected
+    # an outgoing (read-only) value is not writable -> 404 (checked before the connection)
+    assert client.post(f"/api/peas/{pea_id}/values/HC30_FlowView_F13", json={"value": 1}).status_code == 404
+    # the incoming process value is writable, but the PEA is not connected -> 409
+    assert client.post(f"/api/peas/{pea_id}/values/HC30_Target_Full", json={"value": True}).status_code == 409
+
 # NOTE: "PEA dies mid-session -> dropped + reported" is covered reliably in
 # test_registry.py against the registry directly (one event loop). Driving it through
 # TestClient + an in-process asyncua server was flaky in-sequence and is not worth the

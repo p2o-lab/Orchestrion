@@ -93,6 +93,37 @@ def test_streams_live_process_values(tmp_path):
     assert asyncio.run(scenario())
 
 
+def test_write_incoming_process_value_round_trips(tmp_path):
+    """The POL writes a ProcessValueIn (§6.3.3) and reads it back on the live stream."""
+    from orchestrion.opcua import control
+
+    aml = _aml_on_port(tmp_path, 48113)
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            pea = read_mtp(aml)
+            await registry.connect(1, pea)
+            conn = registry.connection(1)
+            target = next(v for v in pea.process_values_in if v.name == "HC30_Target_Full")
+
+            await control.write_process_value(conn, target, True)
+            for _ in range(15):
+                await asyncio.sleep(0.2)
+                if registry.snapshot(1).values.get("HC30_Target_Full") is True:
+                    break
+            assert registry.snapshot(1).values.get("HC30_Target_Full") is True
+        finally:
+            await registry.shutdown()
+            await server.stop()
+        return True
+
+    assert asyncio.run(scenario())
+
+
 def test_health_loop_drops_a_dead_connection(tmp_path):
     aml = _aml_on_port(tmp_path, 48111)
 

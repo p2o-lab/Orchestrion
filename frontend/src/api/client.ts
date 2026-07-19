@@ -77,6 +77,12 @@ export const api = {
       `/api/peas/${peaId}/services/${encodeURIComponent(service)}/command`,
       { method: 'POST', body: JSON.stringify({ command }) },
     ),
+  // Write an incoming process value (§6.3.3, POL→PEA). value: boolean | number | string.
+  writeValue: (peaId: number, name: string, value: boolean | number | string) =>
+    request<{ ok: boolean }>(
+      `/api/peas/${peaId}/values/${encodeURIComponent(name)}`,
+      { method: 'POST', body: JSON.stringify({ value }) },
+    ),
   renamePea: (peaId: number, name: string) =>
     request<PeaSummary>(`/api/peas/${peaId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deletePea: (peaId: number) => request<void>(`/api/peas/${peaId}`, { method: 'DELETE' }),

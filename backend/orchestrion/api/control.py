@@ -15,8 +15,9 @@ from orchestrion.api.live import registry
 from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea
-from orchestrion.mtp.model import Service
+from orchestrion.mtp.model import Pea as PeaModel, Service, ValueObject
 from orchestrion.opcua import control
+from orchestrion.opcua.connection import OpcUaConnectionError
 from orchestrion.state.codes import Command
 
 router = APIRouter(tags=["control"])
@@ -31,15 +32,41 @@ class CommandRequest(BaseModel):
     command: str  # a [2658-4 Table 14] command name, e.g. "STOP", "ABORT", "COMPLETE"
 
 
-def _service(session: Session, pea_id: int, service_name: str) -> Service:
+class ValueWrite(BaseModel):
+    value: bool | float | str  # coerced to the node's server type on write
+
+
+def _pea(session: Session, pea_id: int) -> PeaModel:
     row = session.get(Pea, pea_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"PEA {pea_id} not found")
-    pea = parse_aml(row.aml_content.encode("utf-8"), row.aml_filename)
-    for service in pea.services:
+    return parse_aml(row.aml_content.encode("utf-8"), row.aml_filename)
+
+
+def _service(session: Session, pea_id: int, service_name: str) -> Service:
+    for service in _pea(session, pea_id).services:
         if service.name == service_name:
             return service
     raise HTTPException(status_code=404, detail=f"service {service_name!r} not found")
+
+
+def _writable_process_value(pea: PeaModel, name: str) -> ValueObject:
+    """An incoming process value the POL may write (§6.3.3), PEA-wide or per-procedure.
+
+    Config parameters are also writable but use controlled value assignment (§8.1.3) and
+    are not handled by this endpoint yet; read-only values (out) never match here.
+    """
+    candidates = list(pea.process_values_in)
+    for service in pea.services:
+        for procedure in service.procedures:
+            candidates.extend(procedure.process_values_in)
+    for value in candidates:
+        if value.name == name:
+            return value
+    raise HTTPException(
+        status_code=404,
+        detail=f"{name!r} is not a writable incoming process value on this PEA",
+    )
 
 
 def _require_connection(pea_id: int):
@@ -81,5 +108,21 @@ async def command(
     try:
         await control.command_service(conn, service, cmd)
     except control.ServiceControlError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/peas/{pea_id}/values/{value_name}")
+async def write_value(
+    pea_id: int, value_name: str, body: ValueWrite,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Write an incoming process value (§6.3.3). 409 if not connected, 404 if the value
+    is not a writable incoming process value, 502 on a write failure."""
+    value = _writable_process_value(_pea(session, pea_id), value_name)
+    conn = _require_connection(pea_id)
+    try:
+        await control.write_process_value(conn, value, body.value)
+    except (control.ServiceControlError, OpcUaConnectionError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True}

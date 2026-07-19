@@ -31,6 +31,15 @@ export function PeaView() {
   }, [id])
 
   const live = useLiveState(Number.isNaN(id) ? null : id, connected)
+  const liveConnected = connected && live.status === 'live'
+
+  const writeValue = useCallback(
+    async (name: string, value: boolean | number | string) => {
+      // Fire-and-forget: the WebSocket stream reflects the applied value back.
+      await api.writeValue(id, name, value).catch(() => undefined)
+    },
+    [id],
+  )
 
   useEffect(() => {
     if (live.status === 'error') setConnected(false)
@@ -112,7 +121,12 @@ export function PeaView() {
             </span>
           </div>
           <Card className="p-5 animate-fade-in">
-            <ValueGrid values={pea.process_values} live={live.values} />
+            <ValueGrid
+              values={pea.process_values}
+              live={live.values}
+              onWrite={writeValue}
+              editable={liveConnected}
+            />
           </Card>
         </>
       )}
@@ -129,7 +143,8 @@ export function PeaView() {
               state={live.states[s.name]}
               enabled={new Set(live.commandEn[s.name] ?? [])}
               values={live.values}
-              connected={connected && live.status === 'live'}
+              onWrite={writeValue}
+              connected={liveConnected}
             />
           </div>
         ))}
@@ -187,6 +202,7 @@ function ServiceCard({
   state,
   enabled,
   values: live,
+  onWrite,
   connected,
 }: {
   peaId: number
@@ -194,6 +210,7 @@ function ServiceCard({
   state: string | undefined
   enabled: Set<string>
   values: Record<string, LiveValue>
+  onWrite: (name: string, value: boolean | number | string) => Promise<void>
   connected: boolean
 }) {
   const [showNodes, setShowNodes] = useState(false)
@@ -259,6 +276,8 @@ function ServiceCard({
       {service.config_parameters.length > 0 && (
         <div className="mt-6">
           <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Configuration</div>
+          {/* config params are writable via controlled assignment (§8.1.3) — not wired
+              yet, so shown read-only for now (editable=false). */}
           <ValueGrid values={service.config_parameters} live={live} />
         </div>
       )}
@@ -343,7 +362,7 @@ function ServiceCard({
           <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">
             Live readouts · {selectedProc?.name}
           </div>
-          <ValueGrid values={readouts} live={live} />
+          <ValueGrid values={readouts} live={live} onWrite={onWrite} editable={connected} />
         </div>
       )}
 

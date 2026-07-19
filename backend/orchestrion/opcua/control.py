@@ -21,7 +21,7 @@ import asyncio
 import time
 from collections.abc import Callable
 
-from orchestrion.mtp.model import ProcedureParameter, Service
+from orchestrion.mtp.model import ProcedureParameter, Service, ValueObject
 from orchestrion.opcua.connection import PeaConnection
 from orchestrion.state.codes import Command
 
@@ -131,6 +131,24 @@ async def set_parameter(
     await conn.write_value(node("ApplyExt"), True)
     await _confirm_node(conn, node("VOut"), lambda v: abs(float(v) - float(value)) < 1e-6,
                         f"{parameter.name} applied to VOut")
+
+
+async def write_process_value(
+    conn: PeaConnection, value: ValueObject, raw: object
+) -> None:
+    """Write an incoming process value's `V` — [2658-4:2022] §6.3.3 (POL→PEA).
+
+    A ProcessValueIn is written **directly**, unlike a parameter: there is no
+    VExt/VReq/Apply handshake — `V` is "input of the current value" (Tables 23-26) and
+    is written continuously by the POL. The server's declared type coerces `raw` (BOOL
+    for BinProcessValueIn, Float/DInt for Ana/DInt, STRING for String). VQC (the value's
+    quality, §8.3.2) is left to a later refinement — its code encoding is standard-defined
+    and not to be guessed here.
+    """
+    node = value.data.nodes.get("V")
+    if node is None:
+        raise ServiceControlError(f"value {value.name!r} has no writable V channel")
+    await conn.write_value(node, raw)
 
 
 async def start_service(
