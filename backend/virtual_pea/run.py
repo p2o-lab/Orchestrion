@@ -1,6 +1,6 @@
 """Run the VirtualPEA as a standalone OPC UA server.
 
-    cd backend
+    cd backendw
     .venv/Scripts/python -m virtual_pea.run                 # default :48050
     .venv/Scripts/python -m virtual_pea.run --endpoint opc.tcp://0.0.0.0:48055
 

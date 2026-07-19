@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { LiveValue, PeaDetail, Service } from '../api/types'
+import type { LiveValue, PeaDetail, Service, ValueMeta } from '../api/types'
 import { useLiveState } from '../hooks/useLiveState'
 import { Button, Card, Spinner } from '../ui/primitives'
 import { StatePill } from '../ui/StatePill'
@@ -124,6 +124,7 @@ export function PeaView() {
             <ValueGrid
               values={pea.process_values}
               live={live.values}
+              meta={live.valueMeta}
               onWrite={writeValue}
               editable={liveConnected}
             />
@@ -143,6 +144,7 @@ export function PeaView() {
               state={live.states[s.name]}
               enabled={new Set(live.commandEn[s.name] ?? [])}
               values={live.values}
+              valueMeta={live.valueMeta}
               onWrite={writeValue}
               connected={liveConnected}
             />
@@ -202,6 +204,7 @@ function ServiceCard({
   state,
   enabled,
   values: live,
+  valueMeta,
   onWrite,
   connected,
 }: {
@@ -210,6 +213,7 @@ function ServiceCard({
   state: string | undefined
   enabled: Set<string>
   values: Record<string, LiveValue>
+  valueMeta: Record<string, ValueMeta>
   onWrite: (name: string, value: boolean | number | string) => Promise<void>
   connected: boolean
 }) {
@@ -278,7 +282,7 @@ function ServiceCard({
           <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">Configuration</div>
           {/* config params are writable via controlled assignment (§8.1.3) — not wired
               yet, so shown read-only for now (editable=false). */}
-          <ValueGrid values={service.config_parameters} live={live} />
+          <ValueGrid values={service.config_parameters} live={live} meta={valueMeta} />
         </div>
       )}
 
@@ -362,7 +366,7 @@ function ServiceCard({
           <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-faint">
             Live readouts · {selectedProc?.name}
           </div>
-          <ValueGrid values={readouts} live={live} onWrite={onWrite} editable={connected} />
+          <ValueGrid values={readouts} live={live} meta={valueMeta} onWrite={onWrite} editable={connected} />
         </div>
       )}
 

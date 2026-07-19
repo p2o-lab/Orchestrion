@@ -256,6 +256,28 @@ class PeaConnection:
 
         return StateSubscription(subscription)
 
+    async def read_value_metadata(self) -> dict[str, dict[str, object]]:
+        """Read each value's scaling + unit once — [2658-3:2020] §7.5/§7.6.
+
+        Returns `name -> {"unit": int, "scl_min": float, "scl_max": float}` for values
+        that carry those channels (analog Views). These are **design config**, not live
+        signals (§7.5: "cannot be changed at runtime"), so they are read once at connect
+        rather than subscribed. `unit` is the [Table 10] code; the UI maps it to a symbol.
+        """
+        meta: dict[str, dict[str, object]] = {}
+        for name, value in self._all_value_objects().items():
+            nodes = value.data.nodes
+            entry: dict[str, object] = {}
+            if "VUnit" in nodes:
+                entry["unit"] = int(await self.read_value(nodes["VUnit"]))
+            if "VSclMin" in nodes:
+                entry["scl_min"] = float(await self.read_value(nodes["VSclMin"]))
+            if "VSclMax" in nodes:
+                entry["scl_max"] = float(await self.read_value(nodes["VSclMax"]))
+            if entry:
+                meta[name] = entry
+        return meta
+
     def _all_value_objects(self) -> dict[str, ValueObject]:
         """Every value object the PEA exposes, keyed by TagName (deduped).
 

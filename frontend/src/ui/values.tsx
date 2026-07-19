@@ -5,8 +5,9 @@
 // is connected — a toggle for binary, an input for analog/integer.
 
 import { useState } from 'react'
-import type { LiveValue, ValueDescriptor } from '../api/types'
+import type { LiveValue, ValueDescriptor, ValueMeta } from '../api/types'
 import { Icon } from './icons'
+import { unitSymbol } from './units'
 
 export type WriteFn = (name: string, value: boolean | number | string) => Promise<void>
 
@@ -34,6 +35,48 @@ function DirectionChip({ desc }: { desc: ValueDescriptor }) {
       {desc.writable && <Icon name="pencil" size={9} />}
       {inbound ? 'in' : 'out'}
     </span>
+  )
+}
+
+function Gauge({ value, min, max }: { value: number; min: number; max: number }) {
+  const pct = max > min ? Math.min(1, Math.max(0, (value - min) / (max - min))) : 0
+  return (
+    <div className="mt-2">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+        <div
+          className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+          style={{ width: `${pct * 100}%` }}
+        />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] tabular-nums text-faint">
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
+    </div>
+  )
+}
+
+function AnalogReadout({
+  value,
+  unit,
+  meta,
+}: {
+  value: LiveValue | undefined
+  unit: string | null
+  meta?: ValueMeta
+}) {
+  const has = value !== undefined
+  const ranged = has && meta?.scl_min !== undefined && meta?.scl_max !== undefined
+  return (
+    <>
+      <div className="mt-2 flex items-baseline gap-1">
+        <span className={'font-mono text-2xl tabular-nums ' + (has ? 'text-ink' : 'text-faint')}>
+          {has ? formatNumber(value as LiveValue) : '—'}
+        </span>
+        {unit && <span className="text-sm text-dim">{unit}</span>}
+      </div>
+      {ranged && <Gauge value={Number(value)} min={meta!.scl_min!} max={meta!.scl_max!} />}
+    </>
   )
 }
 
@@ -77,10 +120,12 @@ function BinaryToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 function NumberEditor({
   value,
   integer,
+  unit,
   onSet,
 }: {
   value: LiveValue | undefined
   integer: boolean
+  unit: string | null
   onSet: (n: number) => void
 }) {
   const [draft, setDraft] = useState('')
@@ -99,8 +144,11 @@ function NumberEditor({
 
   return (
     <div className="mt-2">
-      <div className="font-mono text-2xl tabular-nums text-ink">
-        {has ? formatNumber(value as LiveValue) : '—'}
+      <div className="flex items-baseline gap-1">
+        <span className="font-mono text-2xl tabular-nums text-ink">
+          {has ? formatNumber(value as LiveValue) : '—'}
+        </span>
+        {unit && <span className="text-sm text-dim">{unit}</span>}
       </div>
       <div className="mt-2 flex gap-1.5">
         <input
@@ -134,17 +182,20 @@ function NumberEditor({
 function ValueTile({
   desc,
   value,
+  meta,
   onWrite,
   editable,
 }: {
   desc: ValueDescriptor
   value: LiveValue | undefined
+  meta?: ValueMeta
   onWrite?: WriteFn
   editable: boolean
 }) {
   const has = value !== undefined
   const isBinary = desc.kind === 'binary'
   const on = isBinary && (value === true || value === 1)
+  const unit = unitSymbol(meta?.unit)
   // Editable only when the PEA is connected, the value is writable, and we can write it.
   const canEdit = editable && desc.writable && !!onWrite && desc.kind !== 'string'
 
@@ -167,12 +218,11 @@ function ValueTile({
         <NumberEditor
           value={value}
           integer={desc.kind === 'integer'}
+          unit={unit}
           onSet={(n) => onWrite!(desc.name, n)}
         />
       ) : (
-        <div className="mt-2 font-mono text-2xl tabular-nums text-ink">
-          {has ? formatNumber(value as LiveValue) : <span className="text-faint">—</span>}
-        </div>
+        <AnalogReadout value={value} unit={unit} meta={meta} />
       )}
     </div>
   )
@@ -181,12 +231,14 @@ function ValueTile({
 export function ValueGrid({
   values,
   live,
+  meta = {},
   onWrite,
   editable = false,
   empty,
 }: {
   values: ValueDescriptor[]
   live: Record<string, LiveValue>
+  meta?: Record<string, ValueMeta>
   onWrite?: WriteFn
   editable?: boolean
   empty?: string
@@ -197,7 +249,14 @@ export function ValueGrid({
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {values.map((v) => (
-        <ValueTile key={v.name} desc={v} value={live[v.name]} onWrite={onWrite} editable={editable} />
+        <ValueTile
+          key={v.name}
+          desc={v}
+          value={live[v.name]}
+          meta={meta[v.name]}
+          onWrite={onWrite}
+          editable={editable}
+        />
       ))}
     </div>
   )

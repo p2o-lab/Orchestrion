@@ -42,6 +42,14 @@ export interface ValueDescriptor {
 // A live value's current reading (number for analog/integer, boolean for binary).
 export type LiveValue = number | boolean | string
 
+// Scaling + unit for an analog value, read once at connect ([2658-3] §7.5/§7.6).
+// `unit` is the Table 10 code; the UI maps it to a symbol.
+export interface ValueMeta {
+  unit?: number
+  scl_min?: number
+  scl_max?: number
+}
+
 export interface Procedure {
   name: string
   procedure_id: number
@@ -76,6 +84,7 @@ export type LiveMessage =
       states: Record<string, string>
       command_en: Record<string, string[]>
       values: Record<string, LiveValue>
+      value_meta: Record<string, ValueMeta>
     }
   | { type: 'update'; service: string; state?: string; command_en?: string[] }
   | { type: 'update'; name: string; value: LiveValue }

@@ -194,8 +194,13 @@ class VirtualPEA:
             }
             self._process_out.append(nodes)
             if "VSclMin" in value.data.nodes:
+                # Analog scaling + unit are the PEA's runtime config (not in the .aml).
+                # Seed plausible values so the POL's gauges render; unit codes are from
+                # [2658-3:2020] Table 10 (1349 = m³/h, 1342 = %).
+                is_flow = "Flow" in value.name
                 await self._set_float(nodes, "VSclMin", 0.0)
-                await self._set_float(nodes, "VSclMax", 100.0)
+                await self._set_float(nodes, "VSclMax", 50.0 if is_flow else 100.0)
+                await self._seed_typed(nodes, "VUnit", 1349 if is_flow else 1342)
 
         # Start OFFLINE (a valid manufacturer default per §6.2.1) on the operator
         # channel, so a client can drive the handshake.
@@ -486,6 +491,14 @@ class VirtualPEA:
         n = nodes.get(attr)
         if n is not None:
             await n.write_value(ua.DataValue(ua.Variant(float(value), ua.VariantType.Float)))
+
+    @staticmethod
+    async def _seed_typed(nodes: dict, attr: str, value: object) -> None:
+        """Write using the node's own declared type (e.g. VUnit is INT/Int16)."""
+        n = nodes.get(attr)
+        if n is not None:
+            vt = await n.read_data_type_as_variant_type()
+            await n.write_value(ua.DataValue(ua.Variant(value, vt)))
 
     @staticmethod
     async def _get_bool(nodes: dict, attr: str) -> bool:

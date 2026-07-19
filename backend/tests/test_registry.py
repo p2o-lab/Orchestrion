@@ -93,6 +93,32 @@ def test_streams_live_process_values(tmp_path):
     assert asyncio.run(scenario())
 
 
+def test_snapshot_carries_analog_scaling_and_unit(tmp_path):
+    """The registry reads each analog value's scale + unit once at connect (§7.5/§7.6)."""
+    aml = _aml_on_port(tmp_path, 48114)
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            await registry.connect(1, read_mtp(aml))
+            meta = registry.snapshot(1).value_meta
+            # the VirtualPEA seeds Flow as m³/h (Table 10 code 1349), range 0–50.
+            flow = meta["HC30_FlowView_F13"]
+            assert flow["unit"] == 1349
+            assert flow["scl_min"] == 0.0 and flow["scl_max"] == 50.0
+            # Level as % (code 1342), range 0–100.
+            assert meta["HC30_LevelView_L10"]["unit"] == 1342
+        finally:
+            await registry.shutdown()
+            await server.stop()
+        return True
+
+    assert asyncio.run(scenario())
+
+
 def test_write_incoming_process_value_round_trips(tmp_path):
     """The POL writes a ProcessValueIn (§6.3.3) and reads it back on the live stream."""
     from orchestrion.opcua import control

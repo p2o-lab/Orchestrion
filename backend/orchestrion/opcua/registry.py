@@ -26,6 +26,7 @@ class LiveState:
     states: dict[str, str]
     command_en: dict[str, list[str]]
     values: dict[str, object]
+    value_meta: dict[str, dict[str, object]]
 
 
 @dataclass
@@ -34,6 +35,7 @@ class _Entry:
     states: dict[str, ServiceState] = field(default_factory=dict)
     command_en: dict[str, frozenset[Command]] = field(default_factory=dict)
     values: dict[str, object] = field(default_factory=dict)
+    value_meta: dict[str, dict[str, object]] = field(default_factory=dict)
     listeners: set[asyncio.Queue] = field(default_factory=set)
     subscription: object | None = None
     health_task: asyncio.Task | None = None
@@ -44,6 +46,7 @@ class _Entry:
             states={s: st.name for s, st in self.states.items()},
             command_en={s: [c.name for c in cs] for s, cs in self.command_en.items()},
             values=dict(self.values),
+            value_meta={k: dict(v) for k, v in self.value_meta.items()},
         )
 
     def broadcast(self, message: dict) -> None:
@@ -96,6 +99,7 @@ class PeaRegistry:
         connection = PeaConnection(pea)
         await connection.connect()  # OpcUaConnectionError if the PEA is unreachable
         entry = _Entry(connection=connection)
+        entry.value_meta = await connection.read_value_metadata()  # scaling/unit, once
         entry.subscription = await connection.subscribe_service_state(
             entry.on_state,
             on_command_en=entry.on_command_en,

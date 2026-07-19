@@ -3,7 +3,7 @@
 // service, and reports the connection status. One socket per mounted PEA view.
 
 import { useEffect, useRef, useState } from 'react'
-import type { LiveMessage, LiveValue } from '../api/types'
+import type { LiveMessage, LiveValue, ValueMeta } from '../api/types'
 
 export type LiveStatus = 'connecting' | 'live' | 'error' | 'closed'
 
@@ -13,10 +13,11 @@ export interface LiveState {
   states: Record<string, string> // service -> ServiceState name
   commandEn: Record<string, string[]> // service -> enabled Command names
   values: Record<string, LiveValue> // value TagName -> current reading
+  valueMeta: Record<string, ValueMeta> // value TagName -> scaling/unit (static)
 }
 
-const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {}, values: {} }
-const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {}, values: {} }
+const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {} }
+const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {} }
 
 export function useLiveState(peaId: number | null, enabled: boolean): LiveState {
   const [live, setLive] = useState<LiveState>(CLOSED)
@@ -45,6 +46,7 @@ export function useLiveState(peaId: number | null, enabled: boolean): LiveState 
             states: msg.states,
             commandEn: msg.command_en,
             values: msg.values,
+            valueMeta: msg.value_meta,
           }
         }
         if (msg.type === 'update') {

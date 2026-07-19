@@ -37,12 +37,13 @@ def _load_model(session: Session, pea_id: int) -> PeaModel:
 
 def _payload(snapshot) -> dict:
     if snapshot is None:
-        return {"connected": False, "states": {}, "command_en": {}, "values": {}}
+        return {"connected": False, "states": {}, "command_en": {}, "values": {}, "value_meta": {}}
     return {
         "connected": True,
         "states": snapshot.states,
         "command_en": snapshot.command_en,
         "values": snapshot.values,
+        "value_meta": snapshot.value_meta,
     }
 
 
@@ -68,7 +69,7 @@ async def connect_pea(pea_id: int, session: Session = Depends(get_session)) -> d
 async def disconnect_pea(pea_id: int, session: Session = Depends(get_session)) -> dict:
     _load_model(session, pea_id)  # 404 if unknown
     await registry.disconnect(pea_id)
-    return {"connected": False, "states": {}, "command_en": {}, "values": {}}
+    return {"connected": False, "states": {}, "command_en": {}, "values": {}, "value_meta": {}}
 
 
 @router.websocket("/api/peas/{pea_id}/ws")
@@ -81,14 +82,15 @@ async def pea_ws(websocket: WebSocket, pea_id: int) -> None:
         # Not connected — nothing to stream. Tell the viewer and close.
         await websocket.send_json(
             {"type": "snapshot", "connected": False, "states": {},
-             "command_en": {}, "values": {}}
+             "command_en": {}, "values": {}, "value_meta": {}}
         )
         await websocket.close()
         return
 
     await websocket.send_json(
         {"type": "snapshot", "connected": True, "states": snapshot.states,
-         "command_en": snapshot.command_en, "values": snapshot.values}
+         "command_en": snapshot.command_en, "values": snapshot.values,
+         "value_meta": snapshot.value_meta}
     )
 
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
