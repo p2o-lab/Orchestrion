@@ -150,30 +150,35 @@ statement from "MTP has none".)*
 
 ## 6. Project structure
 
-Package name is **`orchestrion`** (locked). The repo, `backend/.venv` (Python 3.12.6), and the Vite `react-ts` frontend already exist; the tree below shows the target once M0 is finished.
+Package name is **`orchestrion`** (locked). The tree below is the **current layout** (through the
+live-values increment; refreshed 2026-07-19). `log.py` is the one planned-but-unbuilt file — it lands in M4.
 
 ```
-Orchestrion/                 (repo root — already exists)
+Orchestrion/                    (repo root)
 ├─ backend/
-│  ├─ .venv/                  Python 3.12.6 virtualenv (done)
-│  ├─ pyproject.toml          fastapi, asyncua, uvicorn, pytest, pydantic  (requires-python >=3.12)
-│  ├─ orchestrion/            the backend package
-│  │  ├─ main.py              FastAPI app + lifespan (starts asyncio machinery)
-│  │  ├─ mtp/                 parser (AML/CAEX 3.0 @manifest 1.1.0; ns-agnostic; version seam)
-│  │  │  ├─ parser.py
-│  │  │  └─ model.py          Pea, Service, ServiceProcedure, DataAssembly   ← see naming note
-│  │  ├─ opcua/               asyncua connection manager + subscriptions
-│  │  │  └─ connection.py
-│  │  ├─ state/               16-state machine + Table 14 codes
-│  │  │  ├─ machine.py
-│  │  │  └─ codes.py          StateCode/CommandCode enums (from Table 14)
-│  │  ├─ registry.py          PEA registry
-│  │  ├─ log.py               event log + WebSocket broadcast
-│  │  └─ api/                 REST routes + WebSocket endpoint
-│  └─ tests/                  incl. regression tests (peer anti-patterns)
-│     └─ artifacts/           MTP samples — HC30 (1.1.0, primary); MTPPy minimal (2.15/1.0.0, later)
-└─ frontend/                  React app (Vite, react-ts): PEA list, service cards, log
-                              — scaffolded; dev proxy + .gitignore done
+│  ├─ .venv/                    Python 3.12.6 virtualenv
+│  ├─ pyproject.toml            fastapi, asyncua, uvicorn, pydantic, sqlmodel; pytest + websockets in [dev]
+│  ├─ orchestrion/              the POL backend package
+│  │  ├─ main.py                FastAPI app + lifespan (starts/stops the PEA registry)
+│  │  ├─ mtp/                   the MTP layer — NO XML above it
+│  │  │  ├─ caex.py             open · version-gate (CAEX 3.0 + manifest 1.1.0) · ns-agnostic access · class derivation · ToC walk
+│  │  │  ├─ model.py            Access · IdentifierType · OpcUaNode · Endpoint · DataAssembly · ProcedureParameter · ValueObject · Service · Pea  ← see naming note
+│  │  │  └─ parser.py           read_mtp() -> Pea  (source list, instance list, service set T36, process value set T42)
+│  │  ├─ state/
+│  │  │  └─ codes.py            [2658-4 Table 14] StateCur + Command + CommandEn decode (the parser never interprets values)
+│  │  ├─ opcua/                 the OPC UA client spine
+│  │  │  ├─ connection.py       PeaConnection: connect-by-URI, read/write (server-typed), subscribe state+CommandEn+values, read_value_metadata
+│  │  │  ├─ control.py          §6.2.1 handshake · set_parameter (§8.1.3) · write_process_value (§6.3.3)
+│  │  │  └─ registry.py         persistent per-PEA connection · health-drop · WebSocket broadcast
+│  │  ├─ db/                    engine.py (SQLite) · models.py (Project, Pea)
+│  │  ├─ api/                   projects.py · peas.py · mtp_import.py · live.py (connect/disconnect + WS) · control.py · schemas.py
+│  │  │                         (log.py — event log + WS broadcast — is M4, not yet built)
+│  │  └─ (state machine)        the 16-state SM lives PEA-side in virtual_pea/state_machine.py; the POL only decodes StateCur via state/codes.py
+│  ├─ virtual_pea/              a conformant OPC UA test PEA (mirrors HC30's address space + §6.2 behaviour)
+│  │  ├─ server.py · state_machine.py · codes.py · run.py
+│  └─ tests/                    incl. regression tests (peer anti-patterns)
+│     └─ artifacts/             HC30 (1.1.0, primary fixture)
+└─ frontend/                    React/Tailwind (Vite, react-ts): workspace → project → PeaView (live state, control, value display + gauges)
 ```
 
 > **Naming note (`model.py`).** `ServiceProcedure` here is an **internal Python class name** and is a free
@@ -223,14 +228,15 @@ Orchestrion/                 (repo root — already exists)
 
 ## 9. Next action
 
-**M0 is complete** (2026-07-16). **Next: M1 — the MTP parser**, built against **HC30**
-(`../reference/Recipol/Recipol/artifacts/2026-05-18-HC30_Stirring_V8.aml` — CAEX 3.0 / manifest 1.1.0 /
-ServiceSet 1.0.0), one unit at a time per Rule 2, behind a version-detection seam (§5). The normative structure
-is established from primary sources in **`docs/progress/002_m1_mtp_parser.md`** — read it before writing parser
-code.
+**Status (2026-07-19): M0 · M1 · M2 · M3 · the live-values increment are all complete** — the MVP spine is
+built except the event log. **Next: M4 — event log + polish** (see `docs/progress/008_m4_log.md`). The
+authoritative, always-current status + the step to resume from live in **`docs/progress/000_INDEX.md`** and the
+latest journal (Rule 3); this section is only the original plan of record.
 
-*(Historical: the M0 remainder was `pyproject.toml` + the `orchestrion` package + `GET /api/health` + the proxy
-pin — all done; see `docs/progress/001_m0_scaffold.md`.)*
+*(Historical trail: M0 scaffold — `001`; M1 parser, built against **HC30**
+`../reference/Recipol/Recipol/artifacts/2026-05-18-HC30_Stirring_V8.aml` behind a version-detection seam (§5),
+normative structure from primary sources — `002`; M2 VirtualPEA + POL backend + frontend — `003`/`004`/`005`;
+M3 control — `006`; live values — `007`.)*
 
 > **Endpoint path — `/api/health`, not `/health`.** The Vite dev proxy forwards `/api/*` **without a `rewrite`**, so the backend must own the `/api` prefix; a bare `/health` is shadowed by the `:5173` dev server and never reaches uvicorn. *(Decided 2026-07-16 — see `docs/progress/001_m0_scaffold.md` open item 5.)*
 
