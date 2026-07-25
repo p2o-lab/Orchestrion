@@ -76,6 +76,14 @@ export interface PeaDetail extends PeaSummary {
   process_values: ValueDescriptor[]
 }
 
+// One event-log entry (M4) — mirrors orchestrion/events.py Event.to_dict().
+export interface LogEvent {
+  timestamp: string // ISO 8601, UTC
+  kind: string // 'state_transition' | 'command' | 'connection' | 'value_write'
+  message: string
+  detail: string | null
+}
+
 // Live-state messages over the WebSocket (backend/orchestrion/api/live.py).
 export type LiveMessage =
   | {
@@ -88,4 +96,6 @@ export type LiveMessage =
     }
   | { type: 'update'; service: string; state?: string; command_en?: string[] }
   | { type: 'update'; name: string; value: LiveValue }
+  | { type: 'log_snapshot'; events: LogEvent[] }
+  | ({ type: 'log' } & LogEvent)
   | { type: 'error'; detail: string }

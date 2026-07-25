@@ -3,7 +3,7 @@
 // service, and reports the connection status. One socket per mounted PEA view.
 
 import { useEffect, useRef, useState } from 'react'
-import type { LiveMessage, LiveValue, ValueMeta } from '../api/types'
+import type { LiveMessage, LiveValue, LogEvent, ValueMeta } from '../api/types'
 
 export type LiveStatus = 'connecting' | 'live' | 'error' | 'closed'
 
@@ -14,10 +14,11 @@ export interface LiveState {
   commandEn: Record<string, string[]> // service -> enabled Command names
   values: Record<string, LiveValue> // value TagName -> current reading
   valueMeta: Record<string, ValueMeta> // value TagName -> scaling/unit (static)
+  events: LogEvent[] // the event log, oldest first (M4)
 }
 
-const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {} }
-const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {} }
+const CLOSED: LiveState = { status: 'closed', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {}, events: [] }
+const CONNECTING: LiveState = { status: 'connecting', error: null, states: {}, commandEn: {}, values: {}, valueMeta: {}, events: [] }
 
 export function useLiveState(peaId: number | null, enabled: boolean): LiveState {
   const [live, setLive] = useState<LiveState>(CLOSED)
@@ -40,6 +41,7 @@ export function useLiveState(peaId: number | null, enabled: boolean): LiveState 
       const msg = JSON.parse(event.data) as LiveMessage
       setLive((prev) => {
         if (msg.type === 'snapshot') {
+          // The log_snapshot arrives right after; keep prev.events until it replaces them.
           return {
             status: 'live',
             error: null,
@@ -47,7 +49,20 @@ export function useLiveState(peaId: number | null, enabled: boolean): LiveState 
             commandEn: msg.command_en,
             values: msg.values,
             valueMeta: msg.value_meta,
+            events: prev.events,
           }
+        }
+        if (msg.type === 'log_snapshot') {
+          return { ...prev, events: msg.events }
+        }
+        if (msg.type === 'log') {
+          const event: LogEvent = {
+            timestamp: msg.timestamp,
+            kind: msg.kind,
+            message: msg.message,
+            detail: msg.detail,
+          }
+          return { ...prev, events: [...prev.events, event] }
         }
         if (msg.type === 'update') {
           if ('name' in msg) {
@@ -59,8 +74,11 @@ export function useLiveState(peaId: number | null, enabled: boolean): LiveState 
             : prev.commandEn
           return { ...prev, states, commandEn }
         }
-        // error
-        return { ...prev, status: 'error', error: msg.detail }
+        if (msg.type === 'error') {
+          return { ...prev, status: 'error', error: msg.detail }
+        }
+        // Unknown message type — ignore it rather than treating it as an error.
+        return prev
       })
     }
     ws.onerror = () =>

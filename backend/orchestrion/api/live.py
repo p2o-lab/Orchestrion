@@ -92,6 +92,10 @@ async def pea_ws(websocket: WebSocket, pea_id: int) -> None:
          "command_en": snapshot.command_en, "values": snapshot.values,
          "value_meta": snapshot.value_meta}
     )
+    # Seed the event log so a newly-opened viewer shows the history so far (M4).
+    await websocket.send_json(
+        {"type": "log_snapshot", "events": registry.event_snapshot(pea_id)}
+    )
 
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
     registry.add_listener(pea_id, queue)
@@ -113,6 +117,10 @@ async def pea_ws(websocket: WebSocket, pea_id: int) -> None:
                 await websocket.send_json(
                     {"type": "update", "name": message["name"], "value": message["value"]}
                 )
+                continue
+            if kind == "log":
+                # The event log line — the nested event's fields become the message body.
+                await websocket.send_json({"type": "log", **message["event"]})
                 continue
             await websocket.send_json(
                 {"type": "update", "service": message["service"],

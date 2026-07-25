@@ -239,6 +239,43 @@ def test_connect_and_disconnect_are_logged(tmp_path):
     assert asyncio.run(scenario())
 
 
+def test_events_are_broadcast_to_ws_listeners(tmp_path):
+    """M4 Step 4: a recorded event is pushed live to the PEA's WS listeners (not only
+    stored). Asserts the envelope shape `api/live.py` forwards (`{"kind":"log","event":…}`
+    with the event nested so its own `kind` does not collide with the discriminator)."""
+    from orchestrion.events import EventKind
+
+    aml = _aml_on_port(tmp_path, 48117)
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            await registry.connect(1, read_mtp(aml))
+            queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+            registry.add_listener(1, queue)
+
+            registry.record_event(1, EventKind.COMMAND, "Stirring: STOP")
+
+            drained = []
+            while not queue.empty():
+                drained.append(queue.get_nowait())
+            logs = [m for m in drained if m.get("kind") == "log"]
+            assert logs, drained
+            event = logs[0]["event"]
+            assert event["kind"] == "command"
+            assert event["message"] == "Stirring: STOP"
+            assert "pea_id" not in event  # per-PEA stream — omitted
+        finally:
+            await registry.shutdown()
+            await server.stop()
+        return True
+
+    assert asyncio.run(scenario())
+
+
 def test_health_loop_drops_a_dead_connection(tmp_path):
     aml = _aml_on_port(tmp_path, 48111)
 

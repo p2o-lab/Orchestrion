@@ -66,11 +66,14 @@ class _Entry:
         # transition — so it is not logged; the live panel already shows current state.
         # State names come from state/codes.py (Table-14-verified), never re-spelt here.
         if previous is not None and previous != state:
-            self.log.record(
+            event = self.log.record(
                 self.pea_id,
                 EventKind.STATE_TRANSITION,
                 f"{service}: {previous.name} → {state.name}",
             )
+            # The event's own dict is nested under "event": it carries its own "kind"
+            # (the EventKind), which would collide with this envelope's "kind" key.
+            self.broadcast({"kind": "log", "event": event.to_dict()})
 
     def on_command_en(self, service: str, commands: frozenset[Command]) -> None:
         self.command_en[service] = commands
@@ -106,9 +109,16 @@ class PeaRegistry:
         self, pea_id: int, kind: EventKind, message: str, detail: str | None = None
     ) -> None:
         """Record a POL-initiated event — connect/disconnect (here), commands and value
-        writes (from `api/control.py`). The single entry point so Step 4 can add WS
-        broadcasting to listeners in exactly one place."""
-        self._log.record(pea_id, kind, message, detail)
+        writes (from `api/control.py`) — and push it live to this PEA's WS viewers.
+
+        The single entry point for POL-initiated events: recording and broadcasting are
+        in one place. A viewer that connects later still gets it via `event_snapshot`.
+        """
+        event = self._log.record(pea_id, kind, message, detail)
+        entry = self._entries.get(pea_id)
+        if entry is not None:
+            # Nested under "event" — see the note in `_Entry.on_state`.
+            entry.broadcast({"kind": "log", "event": event.to_dict()})
 
     def snapshot(self, pea_id: int) -> LiveState | None:
         entry = self._entries.get(pea_id)
