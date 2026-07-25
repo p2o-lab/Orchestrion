@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { LiveValue, LogEvent, PeaDetail, Service, ValueMeta } from '../api/types'
+import type { LiveValue, PeaDetail, Service, ValueMeta } from '../api/types'
 import { useLiveState } from '../hooks/useLiveState'
 import { Button, Card, Spinner } from '../ui/primitives'
 import { StatePill } from '../ui/StatePill'
@@ -18,6 +18,9 @@ export function PeaView() {
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  // The event log lives in its own browser window (opened on demand). We keep a
+  // handle so a second click focuses the existing window instead of spawning more.
+  const logWindow = useRef<Window | null>(null)
 
   const load = useCallback(async () => setPea(await api.getPea(id)), [id])
   useEffect(() => {
@@ -32,6 +35,20 @@ export function PeaView() {
 
   const live = useLiveState(Number.isNaN(id) ? null : id, connected)
   const liveConnected = connected && live.status === 'live'
+
+  // Open the event log in its own window (its own WS — the registry broadcasts to
+  // every listener, so this second viewer gets its own snapshot + live stream).
+  function openLog() {
+    if (logWindow.current && !logWindow.current.closed) {
+      logWindow.current.focus()
+      return
+    }
+    logWindow.current = window.open(
+      `/projects/${projectId}/peas/${id}/log`,
+      `orchestrion-log-${id}`,
+      'width=460,height=680,menubar=no,toolbar=no,location=no,status=no',
+    )
+  }
 
   const writeValue = useCallback(
     async (name: string, value: boolean | number | string) => {
@@ -92,6 +109,15 @@ export function PeaView() {
             <p className="mt-1 flex items-center gap-1.5 font-mono text-sm text-dim">
               <Icon name="signal" size={14} className="text-faint" /> {pea.endpoint_url}
             </p>
+            {connected && (
+              <button
+                onClick={openLog}
+                className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-edge bg-white/3 px-3 py-1.5 text-xs font-medium text-dim transition hover:border-accent/40 hover:text-ink"
+              >
+                <Icon name="recipe" size={14} /> Open event log
+                <span className="text-faint">↗</span>
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -152,66 +178,6 @@ export function PeaView() {
         ))}
       </div>
 
-      {connected && (
-        <>
-          <div className="mb-3 mt-8 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">
-            <Icon name="recipe" size={14} /> Event log
-            <span className="font-normal normal-case tracking-normal text-faint/70">
-              · state transitions, commands, operator actions
-            </span>
-          </div>
-          <Card className="overflow-hidden p-0 animate-fade-in">
-            <LogPanel events={live.events} />
-          </Card>
-        </>
-      )}
-    </div>
-  )
-}
-
-// Colour per event kind ([2658-4] concepts) — literal classes so Tailwind keeps them.
-const LOG_KIND: Record<string, { dot: string; label: string }> = {
-  state_transition: { dot: 'bg-st-execute', label: 'state' },
-  command: { dot: 'bg-accent', label: 'command' },
-  connection: { dot: 'bg-ok', label: 'link' },
-  value_write: { dot: 'bg-st-paused', label: 'write' },
-}
-
-function LogPanel({ events }: { events: LogEvent[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null)
-  // Auto-scroll to the newest line as events arrive.
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [events.length])
-
-  if (events.length === 0) {
-    return (
-      <p className="px-5 py-6 text-xs text-faint">
-        No events yet — command a service or write a value to see them here.
-      </p>
-    )
-  }
-  return (
-    <div className="max-h-80 overflow-y-auto p-2">
-      {events.map((e, i) => {
-        const k = LOG_KIND[e.kind] ?? { dot: 'bg-faint', label: e.kind }
-        const time = new Date(e.timestamp).toLocaleTimeString([], { hour12: false })
-        return (
-          <div
-            key={i}
-            className="flex items-start gap-3 rounded-lg px-3 py-1.5 font-mono text-xs transition hover:bg-white/3"
-          >
-            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${k.dot}`} />
-            <span className="shrink-0 tabular-nums text-faint">{time}</span>
-            <span className="w-16 shrink-0 uppercase tracking-wide text-faint/80">{k.label}</span>
-            <span className="text-ink">
-              {e.message}
-              {e.detail && <span className="text-faint"> — {e.detail}</span>}
-            </span>
-          </div>
-        )
-      })}
-      <div ref={bottomRef} />
     </div>
   )
 }
