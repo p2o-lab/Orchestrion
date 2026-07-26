@@ -108,6 +108,12 @@ class VirtualPEA:
         # (animated below), so the POL's live subscription has real changing data.
         self._process_out: list[dict[str, object]] = []
         self._elapsed = 0.0                        # seconds of scan time, for animation
+        # Linger in a chosen transient state before its SC transition fires, so the HMI
+        # can actually show it — the VirtualPEA otherwise advances within one 50 ms scan.
+        # Purely a demo aid: it does not change which transitions exist, only their timing.
+        self._sc_dwell = {ServiceState.PAUSING: 1.0}  # state -> seconds to hold before SC
+        self._sc_state: ServiceState | None = None    # transient currently being held
+        self._sc_since = 0.0                          # scan time we entered that state
         self._ns_indexes: dict[str, int] = {}      # namespace URI -> server index
         self._scan_task: asyncio.Task | None = None
 
@@ -361,6 +367,14 @@ class VirtualPEA:
                 self._sm.set_self_completing(proc.is_self_completing)
         if self._sm.state in (ServiceState.RESETTING,):
             await self._write("ProcedureCur", 0)
+        # Hold a dwelling transient for its configured time before letting SC fire.
+        state = self._sm.state
+        if state != self._sc_state:
+            self._sc_state = state
+            self._sc_since = self._elapsed
+        dwell = self._sc_dwell.get(state)
+        if dwell is not None and self._elapsed - self._sc_since < dwell:
+            return                                  # still lingering — hold the SC transition
         self._sm.advance()
 
     async def _publish(self) -> None:

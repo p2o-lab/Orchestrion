@@ -5,6 +5,7 @@ import type { LiveValue, PeaDetail, Service, ValueMeta } from '../api/types'
 import { useLiveState } from '../hooks/useLiveState'
 import { Button, Card, Spinner } from '../ui/primitives'
 import { StatePill } from '../ui/StatePill'
+import { ServiceStateChart } from '../ui/ServiceStateChart'
 import { Icon } from '../ui/icons'
 import { ValueGrid } from '../ui/values'
 
@@ -245,6 +246,7 @@ function ServiceCard({
   connected: boolean
 }) {
   const [showNodes, setShowNodes] = useState(false)
+  const [showChart, setShowChart] = useState(true)
   const [procedure, setProcedure] = useState(service.procedures[0]?.procedure_id ?? 0)
   const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -302,6 +304,32 @@ function ServiceCard({
           </span>
         )}
       </div>
+
+      {/* live lifecycle chart — the [2658-4 Table 14] state machine, current state lit;
+          command buttons ride the edges (in addition to the flat row below). Collapsible. */}
+      {connected && (
+        <div className="mt-6">
+          <button
+            onClick={() => setShowChart((s) => !s)}
+            className="mb-2 inline-flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint transition hover:text-dim"
+          >
+            <Icon name="chevron" size={13} className={`transition ${showChart ? 'rotate-90' : ''}`} />
+            Lifecycle
+          </button>
+          {showChart && (
+            <div className="rounded-2xl border border-edge bg-white/[0.02] p-3 animate-fade-in">
+              <ServiceStateChart
+                state={state}
+                enabled={enabled}
+                connected={connected}
+                busy={busy}
+                onStart={run}
+                onCommand={command}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* service-level configuration parameters (§6.2.4.3) */}
       {service.config_parameters.length > 0 && (
