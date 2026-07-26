@@ -200,6 +200,11 @@ Orchestrion/                    (repo root)
 
 **M1–M3 are stack-independent proof the spine works.** After M4, revisit v2 (recipe engine, faceplates, alarms).
 
+> **v0.1.0 shipped (M0–M4, tagged 2026-07-26).** v2 is now underway: **v0.2.0 = the recipe /
+> orchestration engine** — the first v2 item, designed in **`POL_Recipe_Engine_Design.md`** (grounded
+> in ISA-88 / IEC 61512), tracked in journal `009`. Faceplates (Blatt 2) and alarms (Blatt 6/7) remain
+> later v2 items. The real-PEA end-to-end demo (M4 Step 6) is still owed — see `progress/008` close-out.
+
 ---
 
 ## 8. Testing strategy
