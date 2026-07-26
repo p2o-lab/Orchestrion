@@ -78,7 +78,15 @@ def test_start_and_value_write_are_logged_at_the_api_layer(tmp_path):
             kinds = {e["kind"] for e in events}
             assert any(m.startswith("Stirring: Start ") for m in messages), messages
             assert any(m.startswith("HC30_Target_Full :=") for m in messages), messages
-            assert {"command", "value_write"} <= kinds, kinds
+            # first Start flips the PEA out of OFFLINE -> a mode event is logged (§6.2.1),
+            # ordered BEFORE the Start command it enabled.
+            assert "Stirring: → Automatic + External" in messages, messages
+            assert {"command", "mode", "value_write"} <= kinds, kinds
+            mode_i = next(i for i, e in enumerate(events) if e["kind"] == "mode")
+            start_i = next(
+                i for i, m in enumerate(messages) if m.startswith("Stirring: Start ")
+            )
+            assert mode_i < start_i, messages
         finally:
             await live_api.registry.disconnect(pea_id)
             live_api.registry._entries.clear()

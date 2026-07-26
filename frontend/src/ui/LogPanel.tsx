@@ -8,6 +8,7 @@ import type { LogEvent } from '../api/types'
 const LOG_KIND: Record<string, { dot: string; label: string }> = {
   state_transition: { dot: 'bg-st-execute', label: 'state' },
   command: { dot: 'bg-accent', label: 'command' },
+  mode: { dot: 'bg-warn', label: 'mode' },
   connection: { dot: 'bg-ok', label: 'link' },
   value_write: { dot: 'bg-st-paused', label: 'write' },
 }

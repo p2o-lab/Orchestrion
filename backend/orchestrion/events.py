@@ -39,6 +39,11 @@ class EventKind(str, Enum):
     COMMAND = "command"
     """The POL issued a command / Start — [2658-4:2022] §8.2.2.3 (POL→PEA)."""
 
+    MODE = "mode"
+    """The POL took the service to Automatic + External — [2658-4:2022] §6.2.1 (POL→PEA).
+    Logged only when the mode/source actually transitioned, not on the idempotent
+    re-assertion before every command."""
+
     CONNECTION = "connection"
     """An operator connect/disconnect, or the registry dropping a dead PEA."""
 

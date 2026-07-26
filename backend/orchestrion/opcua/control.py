@@ -50,17 +50,23 @@ async def _confirm(
         await asyncio.sleep(_POLL)
 
 
-async def ensure_automatic_external(conn: PeaConnection, service: Service) -> None:
+async def ensure_automatic_external(conn: PeaConnection, service: Service) -> list[str]:
     """[§6.2.1] Ensure the service is in Automatic mode + External source.
 
     Idempotent: only requests a change when the corresponding `*Act` is not already set.
+    Returns the channels it **actually** flipped (`["Automatic", "External"]`, or fewer,
+    or `[]` if already there) so the caller can log a mode change only when one happened.
     """
+    changed: list[str] = []
     if not bool(await conn.read_control(service, "StateAutAct")):
         await conn.write_control(service, "StateAutOp", True)          # [§6.2.1.1]
         await _confirm(conn, service, "StateAutAct", lambda v: bool(v), "Automatic mode")
+        changed.append("Automatic")
     if not bool(await conn.read_control(service, "SrcExtAct")):
         await conn.write_control(service, "SrcExtOp", True)            # [§6.2.1.2]
         await _confirm(conn, service, "SrcExtAct", lambda v: bool(v), "External source")
+        changed.append("External")
+    return changed
 
 
 async def select_procedure(conn: PeaConnection, service: Service, procedure_id: int) -> None:
@@ -156,10 +162,13 @@ async def start_service(
     service: Service,
     procedure_id: int,
     values: dict[str, float] | None = None,
-) -> None:
+) -> list[str]:
     """Full start: Automatic + External -> select procedure -> set parameter values
-    (§4.3.1: before EXECUTE) -> Start on CommandExt."""
-    await ensure_automatic_external(conn, service)
+    (§4.3.1: before EXECUTE) -> Start on CommandExt.
+
+    Returns the mode/source channels the handshake actually flipped (see
+    `ensure_automatic_external`) so the API layer can log a mode change when one occurred."""
+    changed = await ensure_automatic_external(conn, service)
     await select_procedure(conn, service, procedure_id)
     if values:
         procedure = next((p for p in service.procedures if p.procedure_id == procedure_id), None)
@@ -168,13 +177,18 @@ async def start_service(
                 if parameter.name in values:
                     await set_parameter(conn, parameter, values[parameter.name])
     await send_command(conn, service, Command.START)
+    return changed
 
 
-async def command_service(conn: PeaConnection, service: Service, command: Command) -> None:
+async def command_service(
+    conn: PeaConnection, service: Service, command: Command
+) -> list[str]:
     """Send a command (Stop/Hold/Pause/Resume/Complete/Abort/Reset/Restart).
 
     Ensures Automatic + External first so the command is on the honoured channel; the
-    PEA still only acts if the command's `CommandEn` bit is set (§6.2.2.4).
+    PEA still only acts if the command's `CommandEn` bit is set (§6.2.2.4). Returns any
+    mode/source channels the handshake flipped, so the API layer can log a mode change.
     """
-    await ensure_automatic_external(conn, service)
+    changed = await ensure_automatic_external(conn, service)
     await send_command(conn, service, command)
+    return changed

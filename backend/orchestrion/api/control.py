@@ -85,9 +85,15 @@ async def start(
     service = _service(session, pea_id, service_name)
     conn = _require_connection(pea_id)
     try:
-        await control.start_service(conn, service, body.procedure_id, body.values)
+        changed = await control.start_service(conn, service, body.procedure_id, body.values)
     except control.ServiceControlError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # [2658-4:2022 §6.2.1] the POL took the service to Automatic + External — logged only
+    # when the handshake actually transitioned it (not on the idempotent re-assert).
+    if changed:
+        registry.record_event(
+            pea_id, EventKind.MODE, f"{service.name}: → {' + '.join(changed)}"
+        )
     # [2658-4:2022 §8.2.2.5] Start with the selected procedure — an operator action.
     procedure = next(
         (p for p in service.procedures if p.procedure_id == body.procedure_id), None
@@ -115,9 +121,14 @@ async def command(
             f"{[c.name for c in Command]}",
         ) from None
     try:
-        await control.command_service(conn, service, cmd)
+        changed = await control.command_service(conn, service, cmd)
     except control.ServiceControlError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # [2658-4:2022 §6.2.1] mode change first, only if the handshake transitioned it.
+    if changed:
+        registry.record_event(
+            pea_id, EventKind.MODE, f"{service.name}: → {' + '.join(changed)}"
+        )
     # [2658-4:2022 §8.2.2.3] a command the POL issued on CommandExt — an operator action.
     registry.record_event(pea_id, EventKind.COMMAND, f"{service.name}: {cmd.name}")
     return {"ok": True}

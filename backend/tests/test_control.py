@@ -15,6 +15,7 @@ from orchestrion.opcua.connection import PeaConnection
 from orchestrion.opcua.control import (
     ServiceControlError,
     command_service,
+    ensure_automatic_external,
     select_procedure,
     set_parameter,
     start_service,
@@ -128,6 +129,20 @@ def test_out_of_range_parameter_is_rejected(tmp_path):
         return True
 
     assert _run(tmp_path, 48135, scenario)
+
+
+def test_ensure_auto_external_reports_only_real_changes(tmp_path):
+    async def scenario(conn, service):
+        # The VirtualPEA boots OFFLINE (§6.2.1 manufacturer default), so the first
+        # handshake flips both channels and reports them...
+        first = await ensure_automatic_external(conn, service)
+        assert first == ["Automatic", "External"], first
+        # ...and a second call is a no-op: already there, nothing changed.
+        second = await ensure_automatic_external(conn, service)
+        assert second == [], second
+        return True
+
+    assert _run(tmp_path, 48136, scenario)
 
 
 def test_select_invalid_procedure_raises(tmp_path):
