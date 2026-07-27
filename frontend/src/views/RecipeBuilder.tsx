@@ -19,6 +19,7 @@ import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
 import { EndNode } from './EndNode'
+import { ConditionEditor } from './ConditionEditor'
 
 const nodeTypes = { step: StepNode, end: EndNode }
 
@@ -65,6 +66,7 @@ export function RecipeBuilder() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [adding, setAdding] = useState(false)
+  const [editingEdge, setEditingEdge] = useState<Edge | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const seeded = useRef(false)
@@ -145,6 +147,13 @@ export function RecipeBuilder() {
     },
     [nodes, setEdges],
   )
+
+  function updateEdgeCondition(edgeId: string, condition: Condition) {
+    setEdges((es) =>
+      es.map((e) => (e.id === edgeId ? { ...e, label: summarize(condition), data: { condition } } : e)),
+    )
+    setSaved(false)
+  }
 
   function addStep(peaId: number, service: string, procedureId: number) {
     const id = nextStepId(nodes.filter((n) => n.type === 'step').map((n) => n.id))
@@ -247,6 +256,7 @@ export function RecipeBuilder() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onEdgeClick={(_, edge) => setEditingEdge(edge)}
               nodeTypes={nodeTypes}
               colorMode="dark"
               fitView
@@ -277,6 +287,18 @@ export function RecipeBuilder() {
           onAdd={(peaId, service, procedureId) => {
             addStep(peaId, service, procedureId)
             setAdding(false)
+          }}
+        />
+      )}
+
+      {editingEdge && peas && (
+        <ConditionEditor
+          peas={peas}
+          initial={(editingEdge.data as { condition: Condition }).condition}
+          onClose={() => setEditingEdge(null)}
+          onSave={(condition) => {
+            updateEdgeCondition(editingEdge.id, condition)
+            setEditingEdge(null)
           }}
         />
       )}
