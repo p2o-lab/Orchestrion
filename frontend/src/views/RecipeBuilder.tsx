@@ -251,6 +251,9 @@ export function RecipeBuilder() {
               colorMode="dark"
               fitView
               minZoom={0.2}
+              deleteKeyCode={['Delete', 'Backspace']} // RF default is Backspace only
+              onNodesDelete={() => setSaved(false)}
+              onEdgesDelete={() => setSaved(false)}
               style={{ backgroundColor: '#171c27' }} // --color-canvas (RF dark default is near-black)
             >
               {/* the app's slate canvas + the same faint dot grid used app-wide */}
