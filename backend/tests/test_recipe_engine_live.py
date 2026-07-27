@@ -164,6 +164,60 @@ def test_engine_advances_on_a_live_value_threshold(tmp_path):
     assert asyncio.run(scenario()).status == "completed"
 
 
+def test_engine_or_divergence_selection_live(tmp_path):
+    """M5.6 (pulled forward): s0 selects branch Y (its state is EXECUTE, not HELD); branch X's
+    PEA is never started. Proves OR-divergence against live PEAs."""
+    amls = [_aml_on_port(tmp_path, 48126 + i, f"pea{i}.aml") for i in range(3)]
+
+    async def scenario():
+        servers = [VirtualPEA(a) for a in amls]
+        for s in servers:
+            await s.build()
+            await s.start()
+        registry = PeaRegistry()
+        try:
+            peas = {}
+            for i, a in enumerate(amls, start=1):
+                pea = read_mtp(a)
+                await registry.connect(i, pea)
+                peas[i] = {sv.name: sv for sv in pea.services}
+            cont = next(p.procedure_id for p in peas[1]["Stirring"].procedures if not p.is_self_completing)
+
+            async def drive(step):
+                await control.start_service(registry.connection(step.pea_id),
+                                            peas[step.pea_id][step.service], step.procedure_id, step.params)
+
+            def state_of(pea_id, service):
+                snap = registry.snapshot(pea_id)
+                return snap.states.get(service) if snap else None
+
+            reach = lambda pid, st: StateReached(pea_id=pid, service="Stirring", state=st)
+            recipe = MasterRecipe(
+                header=Header(name="selection"),
+                steps=[RecipeStep(id=sid, pea_id=pid, service="Stirring", procedure_id=cont)
+                       for sid, pid in (("s0", 1), ("sX", 2), ("sY", 3))],
+                transitions=[
+                    Transition(from_ids=["s0"], to_ids=["sX"], condition=reach(1, "HELD")),     # not taken
+                    Transition(from_ids=["s0"], to_ids=["sY"], condition=reach(1, "EXECUTE")),   # taken
+                    Transition(from_ids=["sY"], to_ids=[END], condition=reach(3, "EXECUTE")),
+                ],
+            )
+            run = await RecipeEngine(recipe, drive_step=drive, state_of=state_of,
+                                     tick=0.1, timeout=25.0).run()
+
+            assert run.status == "completed", (run.status, run.error)
+            assert run.done == {"s0", "sY"}
+            assert registry.snapshot(3).states["Stirring"] == "EXECUTE"  # branch Y ran
+            assert registry.snapshot(2).states["Stirring"] == "IDLE"     # branch X never started
+            return run
+        finally:
+            await registry.shutdown()
+            for s in servers:
+                await s.stop()
+
+    assert asyncio.run(scenario()).status == "completed"
+
+
 def test_engine_parallel_diamond_across_three_peas(tmp_path):
     """M5.3: s0 -> split -> {sA, sB concurrent} -> join -> END across three live VirtualPEAs."""
     amls = [_aml_on_port(tmp_path, 48123 + i, f"pea{i}.aml") for i in range(3)]

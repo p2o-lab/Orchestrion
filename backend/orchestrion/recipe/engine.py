@@ -5,9 +5,20 @@ control layer and advancing when a transition's `Condition` holds against live s
 
 The loop tracks a set of *active* steps. A transition fires when its condition is met **and**
 every one of its `from_ids` is active; firing marks the from-steps done and starts the
-to-steps (`END` targets simply finish that branch). This structure already generalises to
-parallel splits (several `to_ids`) and joins (several `from_ids`) — M5.3 will exercise those;
-M5.1 tests only the linear case with `StateReached`.
+to-steps (`END` targets simply finish that branch). From this single rule fall all four SFC
+branch forms:
+
+* **AND-divergence (parallel split)** — one transition with several `to_ids`: all start together.
+* **AND-convergence (join)** — one transition with several `from_ids`: fires only once **all**
+  those branches are active (typically with an `And` condition over them).
+* **OR-divergence (selection)** — several transitions leaving the *same* step: the first whose
+  condition holds **consumes** the step (firing removes it from `active`), so the alternatives
+  are mutually exclusive. Ties (two conditions true in one tick) break by **transition order**
+  — the earlier-listed transition wins (priority), the SFC-standard resolution.
+* **OR-convergence (selection merge)** — several transitions (one per alternative branch) sharing
+  a `to` step: since only one branch was ever active, only its transition fires. No special gate.
+
+M5.3 exercised the AND forms; M5.6 (pulled forward) the OR forms.
 
 Decoupled for testability: the engine is handed `drive_step` (start a step on its PEA) and
 `state_of` (read live state) as callbacks. Production wires them to `opcua.control` + the

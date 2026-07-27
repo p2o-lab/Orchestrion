@@ -156,6 +156,79 @@ def test_engine_join_waits_for_the_slower_branch() -> None:
     assert run.status == "completed" and run.done == {"s0", "sA", "sB"}
 
 
+def _selection(x_guard: str = "HELD") -> MasterRecipe:
+    """s0 selects branch X (guard: s0 == x_guard) or branch Y (guard: s0 == EXECUTE); each
+    branch ends at END once its own service reaches EXECUTE."""
+    reach = lambda pid, st: StateReached(pea_id=pid, service="Stirring", state=st)
+    return MasterRecipe(
+        header=Header(name="selection"),
+        steps=[
+            RecipeStep(id="s0", pea_id=1, service="Stirring", procedure_id=1),
+            RecipeStep(id="sX", pea_id=2, service="Stirring", procedure_id=1),
+            RecipeStep(id="sY", pea_id=3, service="Stirring", procedure_id=1),
+        ],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sX"], condition=reach(1, x_guard)),
+            Transition(from_ids=["s0"], to_ids=["sY"], condition=reach(1, "EXECUTE")),
+            Transition(from_ids=["sX"], to_ids=[END], condition=reach(2, "EXECUTE")),
+            Transition(from_ids=["sY"], to_ids=[END], condition=reach(3, "EXECUTE")),
+        ],
+    )
+
+
+def _drive_to_execute(driven: list[str], states: dict[tuple[int, str], str]):
+    async def drive(step: RecipeStep) -> None:
+        driven.append(step.id)
+        states[(step.pea_id, step.service)] = "EXECUTE"
+    return drive
+
+
+def test_engine_or_divergence_selects_one_branch() -> None:
+    driven: list[str] = []
+    states: dict[tuple[int, str], str] = {}
+    run = asyncio.run(RecipeEngine(_selection(), drive_step=_drive_to_execute(driven, states),
+                      state_of=lambda p, s: states.get((p, s)), tick=0.001, timeout=5.0).run())
+    assert run.status == "completed"
+    # s0 reaches EXECUTE (not HELD) → branch Y taken; branch X (guard HELD) abandoned.
+    assert "sY" in driven and "sX" not in driven
+    assert run.done == {"s0", "sY"}
+
+
+def test_engine_or_divergence_priority_by_order() -> None:
+    driven: list[str] = []
+    states: dict[tuple[int, str], str] = {}
+    # both branch guards are EXECUTE → both true at once → the earlier transition (→ sX) wins.
+    run = asyncio.run(RecipeEngine(_selection(x_guard="EXECUTE"), drive_step=_drive_to_execute(driven, states),
+                      state_of=lambda p, s: states.get((p, s)), tick=0.001, timeout=5.0).run())
+    assert run.status == "completed"
+    assert "sX" in driven and "sY" not in driven
+    assert run.done == {"s0", "sX"}
+
+
+def test_engine_or_convergence_merges_branches() -> None:
+    reach = lambda pid, st: StateReached(pea_id=pid, service="Stirring", state=st)
+    recipe = MasterRecipe(
+        header=Header(name="merge"),
+        steps=[RecipeStep(id=i, pea_id=p, service="Stirring", procedure_id=1)
+               for i, p in (("s0", 1), ("sX", 2), ("sY", 3), ("sZ", 4))],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sX"], condition=reach(1, "HELD")),
+            Transition(from_ids=["s0"], to_ids=["sY"], condition=reach(1, "EXECUTE")),
+            Transition(from_ids=["sX"], to_ids=["sZ"], condition=reach(2, "EXECUTE")),
+            Transition(from_ids=["sY"], to_ids=["sZ"], condition=reach(3, "EXECUTE")),  # OR-convergence into sZ
+            Transition(from_ids=["sZ"], to_ids=[END], condition=reach(4, "EXECUTE")),
+        ],
+    )
+    driven: list[str] = []
+    states: dict[tuple[int, str], str] = {}
+    run = asyncio.run(RecipeEngine(recipe, drive_step=_drive_to_execute(driven, states),
+                      state_of=lambda p, s: states.get((p, s)), tick=0.001, timeout=5.0).run())
+    assert run.status == "completed"
+    assert "sY" in driven and "sX" not in driven  # only the chosen branch ran
+    assert driven.count("sZ") == 1                 # the merge step ran exactly once
+    assert run.done == {"s0", "sY", "sZ"}
+
+
 def test_engine_times_out_if_stuck() -> None:
     async def drive(step: RecipeStep) -> None:
         pass
