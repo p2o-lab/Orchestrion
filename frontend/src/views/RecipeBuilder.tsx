@@ -1,33 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
+  addEdge,
   Background,
   Controls,
   MiniMap,
   ReactFlow,
   useEdgesState,
   useNodesState,
+  type Connection,
   type Edge,
   type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { api } from '../api/client'
-import type { MasterRecipe, PeaDetail, RecipeDetail, RecipeStep } from '../api/types'
+import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeStep, Transition } from '../api/types'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
+import { EndNode } from './EndNode'
 
-const nodeTypes = { step: StepNode }
+const nodeTypes = { step: StepNode, end: EndNode }
+
+const END_ID = 'END'
 
 const selectClass =
   'w-full rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20'
 
-// Smallest free "sN" id given the ids already in use.
 function nextStepId(ids: string[]): string {
   const used = new Set(ids)
   let n = 1
   while (used.has(`s${n}`)) n++
   return `s${n}`
+}
+
+// A short human label for an edge (2c-2 will let the user edit the underlying condition).
+function summarize(c: Condition): string {
+  switch (c.type) {
+    case 'StateReached':
+      return `✓ ${c.state}`
+    case 'ValueThreshold':
+      return `${c.value_name} ${c.op} ${c.threshold}`
+    case 'Elapsed':
+      return `after ${c.seconds}s`
+    case 'And':
+      return 'ALL of…'
+    case 'Or':
+      return 'ANY of…'
+  }
+}
+
+function edgeFor(source: string, target: string, condition: Condition, key: string): Edge {
+  return { id: key, source, target, label: summarize(condition), data: { condition } }
 }
 
 export function RecipeBuilder() {
@@ -39,13 +63,12 @@ export function RecipeBuilder() {
   const [peas, setPeas] = useState<PeaDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
-  const [edges, setEdges] = useEdgesState<Edge>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [adding, setAdding] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const seeded = useRef(false)
 
-  // Load the recipe and the project's PEAs (for the step picker + display names).
   useEffect(() => {
     seeded.current = false
     setRecipe(null)
@@ -59,10 +82,7 @@ export function RecipeBuilder() {
       .catch((e) => setError(String(e?.message ?? e)))
   }, [pid, rid])
 
-  const peaById = useCallback(
-    (id: number) => peas?.find((p) => p.id === id),
-    [peas],
-  )
+  const peaById = useCallback((id: number) => peas?.find((p) => p.id === id), [peas])
 
   const procedureName = useCallback(
     (peaId: number, service: string, procedureId: number) => {
@@ -72,38 +92,62 @@ export function RecipeBuilder() {
     [peaById],
   )
 
-  // Seed the canvas once both the recipe and PEAs are in.
+  // Seed the canvas once both the recipe and PEAs are in. An END node is always present.
   useEffect(() => {
     if (seeded.current || !recipe || !peas) return
     seeded.current = true
-    setNodes(
-      recipe.definition.steps.map((s, i) => ({
-        id: s.id,
-        type: 'step',
-        position: { x: s.x ?? 80 + (i % 4) * 240, y: s.y ?? 80 + Math.floor(i / 4) * 170 },
-        data: {
-          pea_id: s.pea_id,
-          service: s.service,
-          procedure_id: s.procedure_id,
-          params: s.params,
-          pea: peaById(s.pea_id)?.name ?? `PEA ${s.pea_id}`,
-          procedure: procedureName(s.pea_id, s.service, s.procedure_id),
-        } satisfies StepNodeData,
-      })),
-    )
+    const stepNodes: Node[] = recipe.definition.steps.map((s, i) => ({
+      id: s.id,
+      type: 'step',
+      position: { x: s.x ?? 80 + (i % 4) * 240, y: s.y ?? 80 + Math.floor(i / 4) * 170 },
+      data: {
+        pea_id: s.pea_id,
+        service: s.service,
+        procedure_id: s.procedure_id,
+        params: s.params,
+        pea: peaById(s.pea_id)?.name ?? `PEA ${s.pea_id}`,
+        procedure: procedureName(s.pea_id, s.service, s.procedure_id),
+      } satisfies StepNodeData,
+    }))
+    const endNode: Node = {
+      id: END_ID,
+      type: 'end',
+      deletable: false,
+      position: { x: 80 + (recipe.definition.steps.length % 4 || 2) * 240, y: 360 },
+      data: {},
+    }
+    setNodes([...stepNodes, endNode])
     setEdges(
       recipe.definition.transitions.flatMap((t, ti) =>
         t.from_ids.flatMap((from) =>
-          t.to_ids
-            .filter((to) => to !== 'END')
-            .map((to) => ({ id: `t${ti}-${from}-${to}`, source: from, target: to })),
+          t.to_ids.map((to) => edgeFor(from, to, t.condition, `t${ti}-${from}-${to}`)),
         ),
       ),
     )
   }, [recipe, peas, peaById, procedureName, setNodes, setEdges])
 
+  // Connect two nodes → a transition with a sensible default (source service ✓ COMPLETED).
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (!c.source || !c.target || c.source === c.target) return
+      setEdges((es) => {
+        const src = nodes.find((n) => n.id === c.source)?.data as StepNodeData | undefined
+        const condition: Condition = {
+          type: 'StateReached',
+          pea_id: src?.pea_id ?? 0,
+          service: src?.service ?? '',
+          state: 'COMPLETED',
+        }
+        const key = `e-${c.source}-${c.target}-${Date.now()}`
+        return addEdge(edgeFor(c.source!, c.target!, condition, key), es)
+      })
+      setSaved(false)
+    },
+    [nodes, setEdges],
+  )
+
   function addStep(peaId: number, service: string, procedureId: number) {
-    const id = nextStepId(nodes.map((n) => n.id))
+    const id = nextStepId(nodes.filter((n) => n.type === 'step').map((n) => n.id))
     const node: Node = {
       id,
       type: 'step',
@@ -124,24 +168,33 @@ export function RecipeBuilder() {
   async function save() {
     if (!recipe) return
     setSaving(true)
+    setError(null)
     try {
-      const steps: RecipeStep[] = nodes.map((n) => {
-        const d = n.data as StepNodeData
-        return {
-          id: n.id,
-          pea_id: d.pea_id,
-          service: d.service,
-          procedure_id: d.procedure_id,
-          params: d.params ?? {},
-          x: n.position.x,
-          y: n.position.y,
-        }
-      })
+      const steps: RecipeStep[] = nodes
+        .filter((n) => n.type === 'step')
+        .map((n) => {
+          const d = n.data as StepNodeData
+          return {
+            id: n.id,
+            pea_id: d.pea_id,
+            service: d.service,
+            procedure_id: d.procedure_id,
+            params: d.params ?? {},
+            x: n.position.x,
+            y: n.position.y,
+          }
+        })
+      // Each edge is one transition (single from/to). AND-grouped split/join is a later refinement.
+      const transitions: Transition[] = edges.map((e) => ({
+        from_ids: [e.source],
+        to_ids: [e.target], // the END node's id IS "END", so this yields the sentinel
+        condition: (e.data as { condition: Condition }).condition,
+      }))
       const definition: MasterRecipe = {
         header: recipe.definition.header,
         formula: recipe.definition.formula,
         steps,
-        transitions: recipe.definition.transitions, // transitions are edited in 2c
+        transitions,
       }
       const summary = await api.updateRecipe(pid, rid, definition)
       setRecipe({ ...recipe, ...summary, definition })
@@ -168,7 +221,8 @@ export function RecipeBuilder() {
           </div>
           <h1 className="truncate text-xl text-ink">{recipe?.name ?? '…'}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {error && <span className="max-w-xs truncate text-xs text-danger" title={error}>{error}</span>}
           <Button variant="ghost" small onClick={() => setAdding(true)} disabled={!peas}>
             <Icon name="plus" size={15} /> Add step
           </Button>
@@ -191,16 +245,20 @@ export function RecipeBuilder() {
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
               nodeTypes={nodeTypes}
               colorMode="dark"
               fitView
               minZoom={0.2}
+              style={{ backgroundColor: '#171c27' }} // --color-canvas (RF dark default is near-black)
             >
-              <Background />
+              {/* the app's slate canvas + the same faint dot grid used app-wide */}
+              <Background bgColor="#171c27" color="rgba(255,255,255,0.07)" gap={22} size={1} />
               <Controls />
               <MiniMap pannable zoomable />
             </ReactFlow>
-            {nodes.length === 0 && (
+            {nodes.filter((n) => n.type === 'step').length === 0 && (
               <div className="pointer-events-none absolute inset-0 grid place-items-center">
                 <p className="text-sm text-faint">Empty recipe — add a step to begin.</p>
               </div>
