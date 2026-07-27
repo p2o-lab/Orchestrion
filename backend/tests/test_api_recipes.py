@@ -51,7 +51,7 @@ def _recipe(pea_id: int, *, service="Stirring", procedure_id=1, state="COMPLETED
         "steps": [{"id": "s1", "pea_id": pea_id, "service": service,
                    "procedure_id": procedure_id, "params": {}}],
         "transitions": [{"from_ids": ["s1"], "to_ids": ["END"],
-                         "condition": {"pea_id": pea_id, "service": service, "state": state}}],
+                         "condition": {"type": "StateReached", "pea_id": pea_id, "service": service, "state": state}}],
     }
 
 
@@ -106,6 +106,19 @@ def test_bad_state_name_rejected(pea, client):
     project_id, pea_id = pea
     r = client.post(f"/api/projects/{project_id}/recipes", json=_recipe(pea_id, state="RUNNING"))
     assert r.status_code == 422 and "Table 14" in r.text  # RUNNING is ISA-88, MTP uses EXECUTE
+
+
+def test_unknown_value_in_threshold_rejected(pea, client):
+    project_id, pea_id = pea
+    body = {
+        "header": {"name": "vt"},
+        "steps": [{"id": "s1", "pea_id": pea_id, "service": "Stirring", "procedure_id": 1, "params": {}}],
+        "transitions": [{"from_ids": ["s1"], "to_ids": ["END"], "condition": {
+            "type": "ValueThreshold", "pea_id": pea_id, "value_name": "NoSuchValue",
+            "op": ">", "threshold": 1.0}}],
+    }
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422 and "NoSuchValue" in r.text
 
 
 def test_structural_validation_still_applies(pea, client):

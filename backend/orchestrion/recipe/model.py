@@ -32,6 +32,8 @@ finished standard (VDI/VDE/NAMUR 2658 standardizes the PEA interface, not the re
 
 from __future__ import annotations
 
+from typing import Annotated, Literal, Union
+
 from pydantic import BaseModel, Field, model_validator
 
 # The sentinel a transition may point to instead of a step id: the recipe is finished.
@@ -67,23 +69,57 @@ class RecipeStep(BaseModel):
     params: dict[str, float] = Field(default_factory=dict)
 
 
+# ── transition conditions ([design-not-dictated] — our scheme; state names are standard) ──
+# A tagged union: every member carries a `type` discriminator, so JSON must name its type
+# (e.g. {"type": "StateReached", ...}). `And`/`Or` nest, so a condition is a tree.
+
 class StateReached(BaseModel):
-    """A transition condition: a service has reached a given state.
+    """A service has reached a given state. The `state` value is standard — a [2658-4 Table 14]
+    service-state name (e.g. "COMPLETED"), i.e. the ISA-88 procedural-element state model."""
 
-    [design-not-dictated] representation. The `state` value is standard — a [2658-4 Table 14]
-    service-state name (e.g. "COMPLETED"), i.e. the ISA-88 procedural-element state model.
-    """
-
-    type: str = "StateReached"  # discriminator; the union widens in M5.2
+    type: Literal["StateReached"] = "StateReached"
     pea_id: int
     service: str
     state: str
 
 
-# The condition on a transition. A one-member alias for now; M5.2 widens it into a
-# discriminated union (StateReached | ValueThreshold | Elapsed | And | Or). Because every
-# member carries a `type` discriminator, widening later needs no change to stored recipes.
-Condition = StateReached
+class ValueThreshold(BaseModel):
+    """A live process value crosses a threshold. `value_name` is the value's TagName as the PEA
+    publishes it — the key in the live snapshot's `values` (engine reads `registry.snapshot`)."""
+
+    type: Literal["ValueThreshold"] = "ValueThreshold"
+    pea_id: int
+    value_name: str
+    op: Literal["<", "<=", ">", ">=", "==", "!="]
+    threshold: float
+
+
+class Elapsed(BaseModel):
+    """The transition's from-step(s) have been active for at least `seconds`."""
+
+    type: Literal["Elapsed"] = "Elapsed"
+    seconds: float
+
+
+class And(BaseModel):
+    """All sub-conditions hold."""
+
+    type: Literal["And"] = "And"
+    conditions: list["Condition"]
+
+
+class Or(BaseModel):
+    """At least one sub-condition holds."""
+
+    type: Literal["Or"] = "Or"
+    conditions: list["Condition"]
+
+
+# The condition on a transition — discriminated on `type` (robust vs. field-guessing).
+Condition = Annotated[
+    Union[StateReached, ValueThreshold, Elapsed, And, Or],
+    Field(discriminator="type"),
+]
 
 
 class Transition(BaseModel):
@@ -130,3 +166,11 @@ class MasterRecipe(BaseModel):
             if not t.from_ids or not t.to_ids:
                 raise ValueError("a transition needs at least one from-step and one to-step")
         return self
+
+
+# Resolve forward references now that every class exists (And/Or nest via `Condition`, and
+# Transition/MasterRecipe reference the `Condition` union).
+And.model_rebuild()
+Or.model_rebuild()
+Transition.model_rebuild()
+MasterRecipe.model_rebuild()

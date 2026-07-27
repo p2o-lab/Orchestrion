@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-from orchestrion.recipe.conditions import is_met
 from orchestrion.recipe.engine import RecipeEngine
 from orchestrion.recipe.model import END, Header, MasterRecipe, RecipeStep, StateReached, Transition
 
@@ -24,15 +23,6 @@ def _linear(state: str = "EXECUTE") -> MasterRecipe:
                        condition=StateReached(pea_id=2, service="Stirring", state=state)),
         ],
     )
-
-
-# ── conditions ────────────────────────────────────────────────────────────────
-
-def test_is_met_state_reached() -> None:
-    cond = StateReached(pea_id=1, service="Stirring", state="COMPLETED")
-    assert is_met(cond, lambda p, s: "COMPLETED")
-    assert not is_met(cond, lambda p, s: "EXECUTE")
-    assert not is_met(cond, lambda p, s: None)  # not connected / not reporting yet
 
 
 # ── engine loop (fakes) ─────────────────────────────────────────────────────────

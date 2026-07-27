@@ -14,7 +14,15 @@ from orchestrion.mtp.parser import read_mtp
 from orchestrion.opcua import control
 from orchestrion.opcua.registry import PeaRegistry
 from orchestrion.recipe.engine import RecipeEngine
-from orchestrion.recipe.model import END, Header, MasterRecipe, RecipeStep, StateReached, Transition
+from orchestrion.recipe.model import (
+    END,
+    Header,
+    MasterRecipe,
+    RecipeStep,
+    StateReached,
+    Transition,
+    ValueThreshold,
+)
 from virtual_pea.server import VirtualPEA
 
 LOCAL_AML = Path(__file__).parent.parent / "virtual_pea" / "HC30_Stirring_V8_local.aml"
@@ -93,3 +101,63 @@ def test_engine_orchestrates_two_virtual_peas(tmp_path):
 
     run = asyncio.run(scenario())
     assert run.status == "completed"
+
+
+def test_engine_advances_on_a_live_value_threshold(tmp_path):
+    """A transition driven by a ValueThreshold against a real, animated HC30 process value."""
+    aml = _aml_on_port(tmp_path, 48122, "pea.aml")
+
+    async def scenario():
+        server = VirtualPEA(aml)
+        await server.build()
+        await server.start()
+        registry = PeaRegistry()
+        try:
+            pea = read_mtp(aml)
+            await registry.connect(1, pea)
+            services = {sv.name: sv for sv in pea.services}
+            cont = next(p.procedure_id for p in services["Stirring"].procedures if not p.is_self_completing)
+
+            # Discover a live numeric process value (don't hardcode HC30's names).
+            vname, vval = None, None
+            for _ in range(40):
+                vals = registry.snapshot(1).values
+                numeric = {n: v for n, v in vals.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                if numeric:
+                    vname, vval = next(iter(numeric.items()))
+                    break
+                await asyncio.sleep(0.05)
+            assert vname is not None, "no live numeric process value appeared"
+
+            async def drive(step):
+                await control.start_service(registry.connection(step.pea_id),
+                                            services[step.service], step.procedure_id, step.params)
+
+            def state_of(pea_id, service):
+                snap = registry.snapshot(pea_id)
+                return snap.states.get(service) if snap else None
+
+            def value_of(pea_id, name):
+                snap = registry.snapshot(pea_id)
+                return snap.values.get(name) if snap else None
+
+            # A threshold far below the value's scale → the condition holds once the live value
+            # is actually read (proving value_of is wired to the live snapshot).
+            recipe = MasterRecipe(
+                header=Header(name="threshold"),
+                steps=[RecipeStep(id="s1", pea_id=1, service="Stirring", procedure_id=cont)],
+                transitions=[Transition(
+                    from_ids=["s1"], to_ids=[END],
+                    condition=ValueThreshold(pea_id=1, value_name=vname, op=">", threshold=vval - 1000.0),
+                )],
+            )
+            engine = RecipeEngine(recipe, drive_step=drive, state_of=state_of, value_of=value_of,
+                                  tick=0.1, timeout=15.0)
+            run = await engine.run()
+            assert run.status == "completed", (run.status, run.error)
+            return run
+        finally:
+            await registry.shutdown()
+            await server.stop()
+
+    assert asyncio.run(scenario()).status == "completed"

@@ -22,13 +22,17 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from orchestrion.recipe.conditions import StateOf, is_met
+from orchestrion.recipe.conditions import EvalContext, StateOf, ValueOf, is_met
 from orchestrion.recipe.model import END, MasterRecipe, RecipeStep
 
 # Start a step on its PEA (the production impl calls control.start_service).
 DriveStep = Callable[[RecipeStep], Awaitable[None]]
 # A recipe-level event message sink (the production impl records EventKind.RECIPE).
 OnEvent = Callable[[str], None]
+
+# A live value lookup for ValueThreshold conditions; defaults to "no values" if not supplied.
+def _no_values(_pea_id: int, _value_name: str) -> float | None:
+    return None
 
 
 @dataclass
@@ -50,6 +54,7 @@ class RecipeEngine:
         *,
         drive_step: DriveStep,
         state_of: StateOf,
+        value_of: ValueOf | None = None,
         on_event: OnEvent | None = None,
         tick: float = 0.1,
         timeout: float = 60.0,
@@ -57,11 +62,13 @@ class RecipeEngine:
         self._recipe = recipe
         self._drive = drive_step
         self._state_of = state_of
+        self._value_of = value_of or _no_values
         self._emit: OnEvent = on_event or (lambda _msg: None)
         self._tick = tick
         self._timeout = timeout
         self._aborted = False
         self._steps = {s.id: s for s in recipe.steps}
+        self._active_since: dict[str, float] = {}  # step id -> monotonic activation time
 
     def abort(self) -> None:
         """Request the run stop after the current tick (idempotent)."""
@@ -84,8 +91,14 @@ class RecipeEngine:
                 self._emit("recipe timed out")
                 return run
             fired = False
+            now = time.monotonic()
             for t in self._recipe.transitions:
-                if all(f in run.active for f in t.from_ids) and is_met(t.condition, self._state_of):
+                if not all(f in run.active for f in t.from_ids):
+                    continue
+                # elapsed = time since the last of this transition's from-steps started.
+                elapsed = now - max(self._active_since[f] for f in t.from_ids)
+                ctx = EvalContext(self._state_of, self._value_of, elapsed)
+                if is_met(t.condition, ctx):
                     for f in t.from_ids:  # the from-steps have completed their part
                         run.active.discard(f)
                         run.done.add(f)
@@ -107,5 +120,6 @@ class RecipeEngine:
     async def _activate(self, step_id: str, run: RecipeRun) -> None:
         step = self._steps[step_id]
         run.active.add(step_id)
+        self._active_since[step_id] = time.monotonic()
         self._emit(f"step {step_id} started: {step.service} / procedure {step.procedure_id} on PEA {step.pea_id}")
         await self._drive(step)

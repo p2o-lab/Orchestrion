@@ -19,7 +19,7 @@ from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea, Project, Recipe
 from orchestrion.mtp.model import Pea as PeaModel
-from orchestrion.recipe.model import MasterRecipe, StateReached
+from orchestrion.recipe.model import And, Condition, Elapsed, MasterRecipe, Or, StateReached, ValueThreshold
 from orchestrion.state.codes import ServiceState
 
 router = APIRouter(tags=["recipes"])
@@ -66,35 +66,60 @@ def _project_peas(session: Session, project_id: int) -> dict[int, PeaModel]:
     return {r.id: parse_aml(r.aml_content.encode("utf-8"), r.aml_filename) for r in rows}
 
 
-def _validate_against_project(recipe: MasterRecipe, peas: dict[int, PeaModel]) -> None:
-    """Reject a recipe whose steps/conditions reference a PEA/service/procedure/state that
-    does not exist in this project (HTTP 422). The pure model only checks internal structure."""
+def _require_service(peas: dict[int, PeaModel], pea_id: int, service: str, where: str) -> PeaModel:
+    pea = peas.get(pea_id)
+    if pea is None:
+        raise HTTPException(422, f"{where}: PEA {pea_id} is not in this project")
+    if not any(s.name == service for s in pea.services):
+        raise HTTPException(422, f"{where}: service {service!r} not on PEA {pea_id}")
+    return pea
 
-    def check_service(pea_id: int, service: str, where: str) -> None:
-        pea = peas.get(pea_id)
+
+def _value_names(pea: PeaModel) -> set[str]:
+    """Every value TagName the PEA publishes — the keys the live snapshot uses (mirrors the set
+    the connection subscribes: PEA-wide process values + per-service config + per-procedure)."""
+    names = {v.name for v in (*pea.process_values_in, *pea.process_values_out)}
+    for service in pea.services:
+        names |= {v.name for v in service.config_parameters}
+        for proc in service.procedures:
+            names |= {v.name for v in (*proc.report_values, *proc.process_values_in, *proc.process_values_out)}
+    return names
+
+
+def _check_condition(cond: Condition, peas: dict[int, PeaModel], where: str) -> None:
+    """Recursively validate a transition condition tree against the project's PEAs."""
+    if isinstance(cond, StateReached):
+        _require_service(peas, cond.pea_id, cond.service, where)
+        if cond.state not in ServiceState.__members__:
+            raise HTTPException(
+                422, f"{where}: {cond.state!r} is not a [2658-4 Table 14] state "
+                f"(one of {list(ServiceState.__members__)})",
+            )
+    elif isinstance(cond, ValueThreshold):
+        pea = peas.get(cond.pea_id)
         if pea is None:
-            raise HTTPException(422, f"{where}: PEA {pea_id} is not in this project")
-        if not any(s.name == service for s in pea.services):
-            raise HTTPException(422, f"{where}: service {service!r} not on PEA {pea_id}")
+            raise HTTPException(422, f"{where}: PEA {cond.pea_id} is not in this project")
+        if cond.value_name not in _value_names(pea):
+            raise HTTPException(422, f"{where}: value {cond.value_name!r} not on PEA {cond.pea_id}")
+    elif isinstance(cond, Elapsed):
+        pass  # nothing to resolve — a pure time condition
+    elif isinstance(cond, (And, Or)):
+        for sub in cond.conditions:
+            _check_condition(sub, peas, where)
 
+
+def _validate_against_project(recipe: MasterRecipe, peas: dict[int, PeaModel]) -> None:
+    """Reject a recipe whose steps/conditions reference a PEA/service/procedure/value/state that
+    does not exist in this project (HTTP 422). The pure model only checks internal structure."""
     for step in recipe.steps:
         where = f"step {step.id!r}"
-        check_service(step.pea_id, step.service, where)
-        pea = peas[step.pea_id]
+        pea = _require_service(peas, step.pea_id, step.service, where)
         service = next(s for s in pea.services if s.name == step.service)
         if not any(p.procedure_id == step.procedure_id for p in service.procedures):
             raise HTTPException(422, f"{where}: procedure {step.procedure_id} not on service {step.service!r}")
 
     for t in recipe.transitions:
-        cond = t.condition
-        if isinstance(cond, StateReached):  # the only condition type in M5.0
-            where = f"transition {t.from_ids}->{t.to_ids}"
-            check_service(cond.pea_id, cond.service, where)
-            if cond.state not in ServiceState.__members__:
-                raise HTTPException(
-                    422, f"{where}: {cond.state!r} is not a [2658-4 Table 14] state "
-                    f"(one of {list(ServiceState.__members__)})",
-                )
+        _check_condition(t.condition, peas, f"transition {t.from_ids}->{t.to_ids}")
 
 
 @router.post("/api/projects/{project_id}/recipes", response_model=RecipeSummary, status_code=201,
