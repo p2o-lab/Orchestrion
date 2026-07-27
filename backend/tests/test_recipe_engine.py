@@ -5,7 +5,15 @@ from __future__ import annotations
 import asyncio
 
 from orchestrion.recipe.engine import RecipeEngine
-from orchestrion.recipe.model import END, Header, MasterRecipe, RecipeStep, StateReached, Transition
+from orchestrion.recipe.model import (
+    END,
+    And,
+    Header,
+    MasterRecipe,
+    RecipeStep,
+    StateReached,
+    Transition,
+)
 
 
 def _linear(state: str = "EXECUTE") -> MasterRecipe:
@@ -90,6 +98,62 @@ def test_engine_abort() -> None:
 
     run = asyncio.run(scenario())
     assert run.status == "aborted" and "s1" in run.active  # never advanced
+
+
+def _diamond() -> MasterRecipe:
+    """s0 -> split -> {sA, sB concurrent} -> join (both EXECUTE) -> END, over PEAs 1/2/3."""
+    reach = lambda pid: StateReached(pea_id=pid, service="Stirring", state="EXECUTE")
+    return MasterRecipe(
+        header=Header(name="diamond"),
+        steps=[
+            RecipeStep(id="s0", pea_id=1, service="Stirring", procedure_id=1),
+            RecipeStep(id="sA", pea_id=2, service="Stirring", procedure_id=1),
+            RecipeStep(id="sB", pea_id=3, service="Stirring", procedure_id=1),
+        ],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=reach(1)),
+            Transition(from_ids=["sA", "sB"], to_ids=[END],
+                       condition=And(conditions=[reach(2), reach(3)])),
+        ],
+    )
+
+
+def test_engine_parallel_split_and_join() -> None:
+    states: dict[tuple[int, str], str] = {}
+    driven: list[str] = []
+
+    async def drive(step: RecipeStep) -> None:
+        driven.append(step.id)
+        states[(step.pea_id, step.service)] = "EXECUTE"
+
+    engine = RecipeEngine(_diamond(), drive_step=drive,
+                          state_of=lambda p, s: states.get((p, s)), tick=0.001, timeout=5.0)
+    run = asyncio.run(engine.run())
+
+    assert run.status == "completed"
+    assert run.done == {"s0", "sA", "sB"}          # both branches ran and the join fired
+    assert set(driven) == {"s0", "sA", "sB"}
+    assert driven[0] == "s0"                        # split happened after the source step
+
+
+def test_engine_join_waits_for_the_slower_branch() -> None:
+    states = {(1, "Stirring"): "EXECUTE", (2, "Stirring"): "EXECUTE", (3, "Stirring"): "IDLE"}
+
+    async def drive(step: RecipeStep) -> None:
+        pass  # states are driven manually below
+
+    async def scenario() -> object:
+        engine = RecipeEngine(_diamond(), drive_step=drive,
+                              state_of=lambda p, s: states.get((p, s)), tick=0.005, timeout=5.0)
+        task = asyncio.create_task(engine.run())
+        # s0 & sA are already EXECUTE, sB is not — the join must not fire yet.
+        await asyncio.sleep(0.05)
+        assert not task.done(), "join fired before the second branch reached EXECUTE"
+        states[(3, "Stirring")] = "EXECUTE"  # slower branch catches up
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed" and run.done == {"s0", "sA", "sB"}
 
 
 def test_engine_times_out_if_stuck() -> None:

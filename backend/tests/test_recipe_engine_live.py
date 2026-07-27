@@ -16,6 +16,7 @@ from orchestrion.opcua.registry import PeaRegistry
 from orchestrion.recipe.engine import RecipeEngine
 from orchestrion.recipe.model import (
     END,
+    And,
     Header,
     MasterRecipe,
     RecipeStep,
@@ -159,5 +160,58 @@ def test_engine_advances_on_a_live_value_threshold(tmp_path):
         finally:
             await registry.shutdown()
             await server.stop()
+
+    assert asyncio.run(scenario()).status == "completed"
+
+
+def test_engine_parallel_diamond_across_three_peas(tmp_path):
+    """M5.3: s0 -> split -> {sA, sB concurrent} -> join -> END across three live VirtualPEAs."""
+    amls = [_aml_on_port(tmp_path, 48123 + i, f"pea{i}.aml") for i in range(3)]
+
+    async def scenario():
+        servers = [VirtualPEA(a) for a in amls]
+        for s in servers:
+            await s.build()
+            await s.start()
+        registry = PeaRegistry()
+        try:
+            peas = {}
+            for i, a in enumerate(amls, start=1):
+                pea = read_mtp(a)
+                await registry.connect(i, pea)
+                peas[i] = {sv.name: sv for sv in pea.services}
+            cont = next(p.procedure_id for p in peas[1]["Stirring"].procedures if not p.is_self_completing)
+
+            async def drive(step):
+                await control.start_service(registry.connection(step.pea_id),
+                                            peas[step.pea_id][step.service], step.procedure_id, step.params)
+
+            def state_of(pea_id, service):
+                snap = registry.snapshot(pea_id)
+                return snap.states.get(service) if snap else None
+
+            reach = lambda pid: StateReached(pea_id=pid, service="Stirring", state="EXECUTE")
+            recipe = MasterRecipe(
+                header=Header(name="diamond"),
+                steps=[RecipeStep(id=sid, pea_id=pid, service="Stirring", procedure_id=cont)
+                       for sid, pid in (("s0", 1), ("sA", 2), ("sB", 3))],
+                transitions=[
+                    Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=reach(1)),
+                    Transition(from_ids=["sA", "sB"], to_ids=[END],
+                               condition=And(conditions=[reach(2), reach(3)])),
+                ],
+            )
+            run = await RecipeEngine(recipe, drive_step=drive, state_of=state_of,
+                                     tick=0.1, timeout=25.0).run()
+
+            assert run.status == "completed", (run.status, run.error)
+            assert run.done == {"s0", "sA", "sB"}
+            # all three PEAs were actually driven to EXECUTE (both branches + the source).
+            assert all(registry.snapshot(i).states["Stirring"] == "EXECUTE" for i in (1, 2, 3))
+            return run
+        finally:
+            await registry.shutdown()
+            for s in servers:
+                await s.stop()
 
     assert asyncio.run(scenario()).status == "completed"
