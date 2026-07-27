@@ -67,6 +67,10 @@ class RecipeStep(BaseModel):
     service: str
     procedure_id: int
     params: dict[str, float] = Field(default_factory=dict)
+    # UI-only canvas position for the builder — [design-not-dictated], non-normative. The
+    # engine and conditions ignore it; it exists so a saved recipe keeps its layout.
+    x: float | None = None
+    y: float | None = None
 
 
 # ── transition conditions ([design-not-dictated] — our scheme; state names are standard) ──

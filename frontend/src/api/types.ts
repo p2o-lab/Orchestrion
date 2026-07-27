@@ -105,6 +105,8 @@ export interface RecipeStep {
   service: string
   procedure_id: number
   params: Record<string, number>
+  x?: number | null // UI-only canvas position (non-normative); mirrors the backend model
+  y?: number | null
 }
 
 export interface Transition {

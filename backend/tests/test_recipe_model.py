@@ -123,6 +123,15 @@ def test_condition_requires_a_known_type() -> None:
         MasterRecipe.model_validate(bad)
 
 
+def test_step_ui_positions_round_trip() -> None:
+    # x/y are optional UI layout; default None, and persist through a JSON round-trip.
+    step = RecipeStep(id="a", pea_id=1, service="Stirring", procedure_id=1)
+    assert step.x is None and step.y is None
+    placed = RecipeStep(id="b", pea_id=1, service="Stirring", procedure_id=1, x=120.5, y=48.0)
+    back = RecipeStep.model_validate(placed.model_dump())
+    assert back.x == 120.5 and back.y == 48.0
+
+
 def test_step_and_condition_construct_directly() -> None:
     # The typed classes are usable directly, not only via dict validation.
     step = RecipeStep(id="a", pea_id=1, service="Stirring", procedure_id=1)
