@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { PeaSummary } from '../api/types'
+import type { PeaSummary, RecipeSummary } from '../api/types'
 import { useWorkspace } from '../workspace'
 import { Button, Card, Input, Modal, Spinner } from '../ui/primitives'
 import { Icon } from '../ui/icons'
@@ -20,9 +20,12 @@ export function ProjectView() {
   const { projects, reload } = useWorkspace()
   const project = projects.find((p) => p.id === id)
 
+  const [tab, setTab] = useState<'equipment' | 'recipes'>('equipment')
   const [peas, setPeas] = useState<PeaSummary[] | null>(null)
+  const [recipes, setRecipes] = useState<RecipeSummary[] | null>(null)
   const [liveByPea, setLiveByPea] = useState<Record<number, LiveInfo>>({})
   const [importing, setImporting] = useState(false)
+  const [creatingRecipe, setCreatingRecipe] = useState(false)
   const [editing, setEditing] = useState(false)
   const [renamingPea, setRenamingPea] = useState<PeaSummary | null>(null)
   const [draftName, setDraftName] = useState('')
@@ -51,11 +54,46 @@ export function ProjectView() {
     setLiveByPea(Object.fromEntries(entries))
   }, [id])
 
+  const loadRecipes = useCallback(async () => {
+    setRecipes(await api.listRecipes(id))
+  }, [id])
+
   useEffect(() => {
     setPeas(null)
+    setRecipes(null)
     setLiveByPea({})
     loadPeas().catch(() => setPeas([]))
   }, [loadPeas])
+
+  // Recipes load lazily the first time their tab is opened.
+  useEffect(() => {
+    if (tab === 'recipes' && recipes === null) loadRecipes().catch(() => setRecipes([]))
+  }, [tab, recipes, loadRecipes])
+
+  async function createRecipe() {
+    const name = draftName.trim()
+    if (!name) return
+    await api.createRecipe(id, {
+      header: { name, version: 1, author: '', product: '' },
+      formula: {},
+      steps: [],
+      transitions: [],
+    })
+    setCreatingRecipe(false)
+    await loadRecipes()
+  }
+
+  function deleteRecipe(recipe: RecipeSummary) {
+    setConfirming({
+      title: 'Delete recipe',
+      message: `"${recipe.name}" will be permanently removed.`,
+      onConfirm: async () => {
+        await api.deleteRecipe(id, recipe.id)
+        await loadRecipes()
+        setConfirming(null)
+      },
+    })
+  }
 
   async function afterImport() {
     await loadPeas()
@@ -122,7 +160,9 @@ export function ProjectView() {
             </button>
           )}
           <p className="mt-2 text-xs text-faint">
-            {peas?.length ?? 0} equipment module{peas?.length === 1 ? '' : 's'}
+            {tab === 'equipment'
+              ? `${peas?.length ?? 0} equipment module${peas?.length === 1 ? '' : 's'}`
+              : `${recipes?.length ?? 0} recipe${recipes?.length === 1 ? '' : 's'}`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -132,25 +172,38 @@ export function ProjectView() {
           <Button variant="danger" small onClick={deleteProject}>
             <Icon name="trash" size={15} /> Delete
           </Button>
-          <Button variant="primary" onClick={() => setImporting(true)}>
-            <Icon name="plus" size={16} /> Import PEA
-          </Button>
+          {tab === 'equipment' ? (
+            <Button variant="primary" onClick={() => setImporting(true)}>
+              <Icon name="plus" size={16} /> Import PEA
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => { setDraftName(''); setCreatingRecipe(true) }}>
+              <Icon name="plus" size={16} /> New recipe
+            </Button>
+          )}
         </div>
       </div>
 
       {/* tabs */}
-      <div className="mt-6 flex items-center gap-1 border-b border-edge">
-        <span className="-mb-px flex items-center gap-2 border-b-2 border-accent px-1 pb-3 text-sm font-medium text-ink">
-          <Icon name="module" size={16} /> Equipment
-        </span>
-        <span className="ml-4 flex items-center gap-2 px-1 pb-3 text-sm text-faint" title="Coming later">
-          <Icon name="recipe" size={16} /> Recipes
-          <span className="rounded-full bg-white/6 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">soon</span>
-        </span>
+      <div className="mt-6 flex items-center gap-6 border-b border-edge">
+        {(['equipment', 'recipes'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`-mb-px flex items-center gap-2 border-b-2 px-1 pb-3 text-sm transition ${
+              tab === t
+                ? 'border-accent font-medium text-ink'
+                : 'border-transparent text-faint hover:text-dim'
+            }`}
+          >
+            <Icon name={t === 'equipment' ? 'module' : 'recipe'} size={16} />
+            {t === 'equipment' ? 'Equipment' : 'Recipes'}
+          </button>
+        ))}
       </div>
 
-      {/* PEA grid */}
-      {peas === null ? (
+      {/* PEA grid (Equipment tab) */}
+      {tab === 'equipment' && (peas === null ? (
         <div className="grid place-items-center py-24"><Spinner className="h-6 w-6" /></div>
       ) : peas.length === 0 ? (
         <Card className="mt-8 flex flex-col items-center gap-4 p-14 text-center">
@@ -213,7 +266,55 @@ export function ProjectView() {
             )
           })}
         </div>
-      )}
+      ))}
+
+      {/* Recipes tab */}
+      {tab === 'recipes' && (recipes === null ? (
+        <div className="grid place-items-center py-24"><Spinner className="h-6 w-6" /></div>
+      ) : recipes.length === 0 ? (
+        <Card className="mt-8 flex flex-col items-center gap-4 p-14 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-2xl bg-accent/12 text-accent">
+            <Icon name="recipe" size={26} />
+          </span>
+          <p className="text-dim">No recipes yet.</p>
+          <p className="max-w-sm text-xs leading-relaxed text-faint">
+            A recipe sequences this project's PEA services into one orchestrated run.
+          </p>
+          <Button variant="primary" onClick={() => { setDraftName(''); setCreatingRecipe(true) }}>
+            <Icon name="plus" size={16} /> New recipe
+          </Button>
+        </Card>
+      ) : (
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {recipes.map((recipe, i) => (
+            <div key={recipe.id} className="animate-rise" style={{ animationDelay: `${i * 45}ms` }}>
+              <Card className="edge-top-accent group relative overflow-hidden p-5 transition duration-200 hover:-translate-y-1 hover:border-accent/40 hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6)]">
+                <div className="absolute right-3 top-3 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    onClick={() => deleteRecipe(recipe)}
+                    className="grid h-7 w-7 place-items-center rounded-md text-faint transition hover:bg-white/8 hover:text-danger"
+                    title="Delete recipe"
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                </div>
+                <Link to={`/projects/${id}/recipes/${recipe.id}`} className="block">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/12 text-accent transition group-hover:bg-accent/20">
+                    <Icon name="recipe" size={20} />
+                  </span>
+                  <div className="mt-4 truncate text-base font-semibold text-ink">{recipe.name}</div>
+                  <div className="mt-2 text-xs text-faint">
+                    {recipe.step_count} step{recipe.step_count === 1 ? '' : 's'} · v{recipe.version}
+                  </div>
+                  <div className="mt-4 flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
+                    Open builder <Icon name="chevron" size={14} />
+                  </div>
+                </Link>
+              </Card>
+            </div>
+          ))}
+        </div>
+      ))}
 
       {importing && (
         <ImportDialog projectId={id} onClose={() => setImporting(false)} onImported={afterImport} />
@@ -254,6 +355,23 @@ export function ProjectView() {
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setRenamingPea(null)}>Cancel</Button>
             <Button variant="primary" onClick={renamePea} disabled={!draftName.trim()}>Save</Button>
+          </div>
+        </Modal>
+      )}
+
+      {creatingRecipe && (
+        <Modal title="New recipe" onClose={() => setCreatingRecipe(false)}>
+          <label className="mb-1.5 block text-xs font-medium text-dim">Name</label>
+          <Input
+            autoFocus
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && createRecipe()}
+            placeholder="e.g. Batch-42"
+          />
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setCreatingRecipe(false)}>Cancel</Button>
+            <Button variant="primary" onClick={createRecipe} disabled={!draftName.trim()}>Create</Button>
           </div>
         </Modal>
       )}

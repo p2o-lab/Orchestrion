@@ -2,7 +2,14 @@
 // (/api -> 127.0.0.1:8000). A non-2xx throws ApiError carrying the parsed message,
 // so the import flow can surface the parser's message inline.
 
-import type { PeaDetail, PeaSummary, Project } from './types'
+import type {
+  MasterRecipe,
+  PeaDetail,
+  PeaSummary,
+  Project,
+  RecipeDetail,
+  RecipeSummary,
+} from './types'
 
 export interface LiveSnapshot {
   connected: boolean
@@ -86,6 +93,24 @@ export const api = {
   renamePea: (peaId: number, name: string) =>
     request<PeaSummary>(`/api/peas/${peaId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deletePea: (peaId: number) => request<void>(`/api/peas/${peaId}`, { method: 'DELETE' }),
+
+  // Recipes (v0.2.0) — a master recipe is authored per project and validated against its PEAs.
+  listRecipes: (projectId: number) =>
+    request<RecipeSummary[]>(`/api/projects/${projectId}/recipes`),
+  getRecipe: (projectId: number, recipeId: number) =>
+    request<RecipeDetail>(`/api/projects/${projectId}/recipes/${recipeId}`),
+  createRecipe: (projectId: number, recipe: MasterRecipe) =>
+    request<RecipeSummary>(`/api/projects/${projectId}/recipes`, {
+      method: 'POST',
+      body: JSON.stringify(recipe),
+    }),
+  updateRecipe: (projectId: number, recipeId: number, recipe: MasterRecipe) =>
+    request<RecipeSummary>(`/api/projects/${projectId}/recipes/${recipeId}`, {
+      method: 'PUT',
+      body: JSON.stringify(recipe),
+    }),
+  deleteRecipe: (projectId: number, recipeId: number) =>
+    request<void>(`/api/projects/${projectId}/recipes/${recipeId}`, { method: 'DELETE' }),
 
   // Multipart import; on 422 ApiError.message is the parser's clause-level message.
   async importPea(projectId: number, name: string, file: File): Promise<PeaSummary> {

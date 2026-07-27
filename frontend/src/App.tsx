@@ -4,6 +4,7 @@ import { WorkspaceProvider } from './workspace'
 import { Home } from './views/Home'
 import { ProjectView } from './views/ProjectView'
 import { PeaView } from './views/PeaView'
+import { RecipeBuilder } from './views/RecipeBuilder'
 import { LogWindow } from './views/LogWindow'
 
 // The app shell: sidebar + the main routed content. A pathless layout route wraps
@@ -29,6 +30,7 @@ export default function App() {
         <Route element={<Shell />}>
           <Route path="/" element={<Home />} />
           <Route path="/projects/:projectId" element={<ProjectView />} />
+          <Route path="/projects/:projectId/recipes/:recipeId" element={<RecipeBuilder />} />
           <Route path="/projects/:projectId/peas/:peaId" element={<PeaView />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

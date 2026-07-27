@@ -84,6 +84,57 @@ export interface LogEvent {
   detail: string | null
 }
 
+// ── Recipes (v0.2.0) — mirror orchestrion/recipe/model.py + api/recipes.py ──────────
+
+export interface StateReached { type: 'StateReached'; pea_id: number; service: string; state: string }
+export interface ValueThreshold {
+  type: 'ValueThreshold'
+  pea_id: number
+  value_name: string
+  op: '<' | '<=' | '>' | '>=' | '==' | '!='
+  threshold: number
+}
+export interface Elapsed { type: 'Elapsed'; seconds: number }
+export interface AndCond { type: 'And'; conditions: Condition[] }
+export interface OrCond { type: 'Or'; conditions: Condition[] }
+export type Condition = StateReached | ValueThreshold | Elapsed | AndCond | OrCond
+
+export interface RecipeStep {
+  id: string
+  pea_id: number
+  service: string
+  procedure_id: number
+  params: Record<string, number>
+}
+
+export interface Transition {
+  from_ids: string[]
+  to_ids: string[] // may contain the "END" sentinel
+  condition: Condition
+}
+
+export interface RecipeHeader { name: string; version: number; author: string; product: string }
+
+export interface MasterRecipe {
+  header: RecipeHeader
+  formula: Record<string, number>
+  steps: RecipeStep[]
+  transitions: Transition[]
+}
+
+export interface RecipeSummary {
+  id: number
+  project_id: number
+  name: string
+  version: number
+  step_count: number
+  created_at: string
+}
+
+export interface RecipeDetail extends RecipeSummary {
+  definition: MasterRecipe
+}
+
 // Live-state messages over the WebSocket (backend/orchestrion/api/live.py).
 export type LiveMessage =
   | {
