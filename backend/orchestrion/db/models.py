@@ -32,6 +32,11 @@ class Project(SQLModel, table=True):
         # Deleting a project removes its PEAs (they cannot exist without one).
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    recipes: list["Recipe"] = Relationship(
+        back_populates="project",
+        # A recipe references this project's PEAs, so it cannot outlive the project.
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class Pea(SQLModel, table=True):
@@ -53,3 +58,25 @@ class Pea(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
     project: Project | None = Relationship(back_populates="peas")
+
+
+class Recipe(SQLModel, table=True):
+    """A master recipe authored for a project — [IEC 61512-1 §6.2] master recipe.
+
+    Like `Pea`, the recipe is stored **raw** (its `MasterRecipe` JSON in `definition`) and
+    re-parsed on demand via `orchestrion.recipe.model.MasterRecipe` — so there is nothing to
+    keep in sync and a backup is just the .db file. `(project_id, name)` is the user-facing
+    identity; `version` bumps when a recipe is edited.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    name: str
+    version: int = Field(default=1)
+
+    definition: str
+    """The `MasterRecipe` serialized as JSON — the single source of truth, parsed on demand."""
+
+    created_at: datetime = Field(default_factory=_utcnow)
+
+    project: Project | None = Relationship(back_populates="recipes")
