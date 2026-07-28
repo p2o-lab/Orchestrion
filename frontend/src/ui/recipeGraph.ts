@@ -1,29 +1,45 @@
-// The recipe builder's graph ⇄ engine-transitions mapping — pure, framework-free, tested.
+// The recipe builder's GRAFCET graph ⇄ engine-transitions mapping — pure, framework-free, tested.
 //
-// Node kinds: `step`, `end`, and two gateways — `and` (parallel, two lines) and `or`
-// (exclusive/selection, one line). A gateway is a SPLIT when it has one input and many outputs,
-// a MERGE when it has many inputs and one output. Engine transition = { from_ids[], to_ids[], condition }.
+// GRAFCET (IEC 60848 — the notation IEC 61512-1:2023 normatively references: its reference list +
+// §5.3.1 Note 2). A chart is a strict alternation of STEPS and TRANSITIONS joined by directed links:
+//   • a step-like node (start | step | end) links only to a transition, and a transition links only
+//     to a step-like node — never step→step or transition→transition (the alternation rule).
+//   • the INITIAL step (the `start` marker points straight to it) is active when the recipe begins;
+//     it has no preceding transition. A transition → `end` finishes that branch.
+//   • a TRANSITION carries the receptivity (our `Condition`) — the guard lives on the transition,
+//     NOT on the arrow. It fires when all its upstream steps are active and the condition is true,
+//     deactivating them and activating all its downstream steps.
 //
-//   AND split  : step →[cond]→ (AND) →→ {B, C}      ⇒ ONE { from:[step], to:[B,C], condition }        (all start together)
-//   AND merge  : {B, C} →→ (AND) →[cond]→ D          ⇒ ONE { from:[B,C], to:[D], condition }           (all present + one condition → close all)
-//   OR  split  : step → (OR) →→ {B[cB], C[cC]}       ⇒ { from:[step], to:[B], cB } and { …to:[C], cC } (first condition wins)
-//   OR  merge  : {B[cB], C[cC]} →→ (OR) → D          ⇒ { from:[B], to:[D], cB } and { from:[C], …, cC } (whichever arrives passes)
-//
-// The condition lives on the gateway's "single" side: the one input of a split, the one output of
-// a merge (AND); or on each branch edge (OR). Plain step→step/end edges carry their own condition.
+// Each transition node ⇒ exactly one engine `Transition { from_ids, to_ids, condition }`:
+//   series          s1 → T → s2            { from:[s1], to:[s2] }
+//   AND divergence  s1 → T → {s2,s3}       { from:[s1], to:[s2,s3] }          (one T, many out — simultaneous)
+//   AND convergence {s2,s3} → T → s4       { from:[s2,s3], to:[s4] }          (one T, many in — join)
+//   OR  divergence  s1 → {T1→s2, T2→s3}    two T: {[s1],[s2]}, {[s1],[s3]}    (many T from one step — selection)
+//   OR  convergence {s2→T1, s3→T2} → s4    two T: {[s2],[s4]}, {[s3],[s4]}
+// AND vs OR is not a node type — it falls out of WHERE the branch is: after a transition = simultaneous,
+// before the transitions (a step with several) = selection. [IEC 61512-1:2023 §5.3.1: "a procedure
+// consists of a set of steps in series, in parallel, or a combination of both. Transition conditions
+// may be inserted between any steps to modify which steps will execute… Steps are initiated only after
+// the immediate predecessor(s) in series with them have completed and any intervening transition
+// conditions are true."]
 
 import type { Condition, MasterRecipe, Transition } from '../api/types'
 
+export const START_ID = 'START'
 export const END_ID = 'END'
-export type NodeKind = 'step' | 'and' | 'or' | 'end'
+export type NodeKind = 'start' | 'step' | 'transition' | 'end'
 
 export interface GraphNode {
   id: string
   kind: NodeKind
+  // step fields
   pea_id?: number
   service?: string
   procedure_id?: number
   params?: Record<string, number>
+  // transition field — the receptivity guard
+  condition?: Condition
+  // UI-only canvas position
   x?: number | null
   y?: number | null
 }
@@ -31,8 +47,9 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string
   target: string
-  condition?: Condition
 }
+
+const isStepLike = (k: NodeKind | undefined) => k === 'start' || k === 'step' || k === 'end'
 
 const completedFor = (n: GraphNode | undefined): Condition => ({
   type: 'StateReached',
@@ -41,117 +58,77 @@ const completedFor = (n: GraphNode | undefined): Condition => ({
   state: 'COMPLETED',
 })
 
-/** Canvas graph → engine transitions. Returns an error message if a gateway is malformed. */
+/** GRAFCET canvas graph → engine transitions. Returns an error message if the chart breaks a rule. */
 export function graphToTransitions(
   nodes: GraphNode[],
   edges: GraphEdge[],
 ): { transitions: Transition[]; error: string | null } {
   const byId = new Map(nodes.map((n) => [n.id, n]))
-  const isGate = (id: string) => byId.get(id)?.kind === 'and' || byId.get(id)?.kind === 'or'
-  const transitions: Transition[] = []
+  const kindOf = (id: string) => byId.get(id)?.kind
 
-  for (const g of nodes.filter((n) => n.kind === 'and' || n.kind === 'or')) {
-    const ins = edges.filter((e) => e.target === g.id)
-    const outs = edges.filter((e) => e.source === g.id)
-    const label = g.kind === 'and' ? 'An AND gateway' : 'An OR gateway'
-    if (ins.length === 0 || outs.length === 0)
-      return { transitions: [], error: `${label} needs at least one input and one output.` }
-    const split = ins.length === 1
-    const merge = outs.length === 1
-    if (!split && !merge)
-      return { transitions: [], error: `${label} must be a split (1→many) or a merge (many→1), not both.` }
-
-    if (g.kind === 'and') {
-      if (split) {
-        transitions.push({
-          from_ids: [ins[0].source],
-          to_ids: outs.map((o) => o.target),
-          condition: ins[0].condition ?? completedFor(byId.get(ins[0].source)),
-        })
-      } else {
-        transitions.push({
-          from_ids: ins.map((i) => i.source),
-          to_ids: [outs[0].target],
-          condition: outs[0].condition ?? completedFor(byId.get(ins[0].source)),
-        })
-      }
-    } else {
-      // OR: one transition per branch.
-      if (split) {
-        for (const o of outs)
-          transitions.push({ from_ids: [ins[0].source], to_ids: [o.target], condition: o.condition ?? completedFor(byId.get(ins[0].source)) })
-      } else {
-        for (const i of ins)
-          transitions.push({ from_ids: [i.source], to_ids: [outs[0].target], condition: i.condition ?? completedFor(byId.get(i.source)) })
-      }
+  // 1. Every link obeys the alternation rule.
+  for (const e of edges) {
+    const s = kindOf(e.source)
+    const t = kindOf(e.target)
+    if (!s || !t) return { transitions: [], error: `A link references a node that no longer exists.` }
+    if (s === 'end') return { transitions: [], error: `Nothing may follow END.` }
+    if (t === 'start') return { transitions: [], error: `Nothing may lead into START.` }
+    if (s === 'start') {
+      // START marks the initial step: it links straight to a step, never to a transition.
+      if (t !== 'step') return { transitions: [], error: `START must connect directly to a step (the initial step).` }
+      continue
     }
+    const ok = (isStepLike(s) && t === 'transition') || (s === 'transition' && isStepLike(t))
+    if (!ok)
+      return {
+        transitions: [],
+        error: `GRAFCET alternates steps and transitions: a ${s} cannot link to a ${t}. Put a transition between two steps.`,
+      }
   }
 
-  for (const e of edges) {
-    if (isGate(e.source) || isGate(e.target)) continue
-    transitions.push({ from_ids: [e.source], to_ids: [e.target], condition: e.condition ?? completedFor(byId.get(e.source)) })
+  // 2. Each transition node becomes exactly one engine transition.
+  const transitions: Transition[] = []
+  for (const tr of nodes.filter((n) => n.kind === 'transition')) {
+    const from = edges.filter((e) => e.target === tr.id).map((e) => e.source)
+    const to = edges.filter((e) => e.source === tr.id).map((e) => e.target)
+    if (from.length === 0 || to.length === 0)
+      return { transitions: [], error: `Every transition needs at least one step before it and one after it.` }
+    transitions.push({
+      from_ids: from,
+      to_ids: to,
+      condition: tr.condition ?? completedFor(byId.get(from[0])),
+    })
   }
 
   return { transitions, error: null }
 }
 
-/** Engine transitions → canvas graph (reconstruct gateways). */
+/** Engine transitions → GRAFCET canvas graph (transitions become nodes; START marks initial steps). */
 export function recipeToGraph(recipe: MasterRecipe): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes: GraphNode[] = recipe.steps.map((s) => ({
-    id: s.id, kind: 'step', pea_id: s.pea_id, service: s.service, procedure_id: s.procedure_id, params: s.params, x: s.x, y: s.y,
+    id: s.id,
+    kind: 'step',
+    pea_id: s.pea_id,
+    service: s.service,
+    procedure_id: s.procedure_id,
+    params: s.params,
+    x: s.x,
+    y: s.y,
   }))
+  nodes.push({ id: START_ID, kind: 'start' })
   nodes.push({ id: END_ID, kind: 'end' })
+
   const edges: GraphEdge[] = []
-  let gid = 0
-  const newGate = (kind: 'and' | 'or') => {
-    const id = `${kind}-${++gid}`
-    nodes.push({ id, kind })
-    return id
-  }
+  recipe.transitions.forEach((t, i) => {
+    const tid = `t${i + 1}`
+    nodes.push({ id: tid, kind: 'transition', condition: t.condition })
+    t.from_ids.forEach((f) => edges.push({ source: f, target: tid }))
+    t.to_ids.forEach((to) => edges.push({ source: tid, target: to }))
+  })
 
-  const singles = recipe.transitions.filter((t) => t.from_ids.length === 1 && t.to_ids.length === 1)
-  const used = new Set<Transition>()
-
-  // AND split (1→many) and AND merge (many→1).
-  for (const t of recipe.transitions) {
-    if (t.from_ids.length === 1 && t.to_ids.length > 1) {
-      const g = newGate('and')
-      edges.push({ source: t.from_ids[0], target: g, condition: t.condition })
-      t.to_ids.forEach((to) => edges.push({ source: g, target: to }))
-    } else if (t.from_ids.length > 1 && t.to_ids.length === 1) {
-      const g = newGate('and')
-      t.from_ids.forEach((f) => edges.push({ source: f, target: g }))
-      edges.push({ source: g, target: t.to_ids[0], condition: t.condition })
-    } else if (t.from_ids.length > 1 && t.to_ids.length > 1) {
-      t.from_ids.forEach((f) => t.to_ids.forEach((to) => edges.push({ source: f, target: to, condition: t.condition })))
-    }
-  }
-
-  // OR split: several single 1→1 transitions sharing a source.
-  const byFrom = new Map<string, Transition[]>()
-  for (const t of singles) (byFrom.get(t.from_ids[0]) ?? byFrom.set(t.from_ids[0], []).get(t.from_ids[0])!).push(t)
-  for (const [from, ts] of byFrom) {
-    if (ts.length >= 2) {
-      const g = newGate('or')
-      edges.push({ source: from, target: g })
-      ts.forEach((t) => { edges.push({ source: g, target: t.to_ids[0], condition: t.condition }); used.add(t) })
-    }
-  }
-
-  // OR merge: remaining singles sharing a target.
-  const rest = singles.filter((t) => !used.has(t))
-  const byTo = new Map<string, Transition[]>()
-  for (const t of rest) (byTo.get(t.to_ids[0]) ?? byTo.set(t.to_ids[0], []).get(t.to_ids[0])!).push(t)
-  for (const [to, ts] of byTo) {
-    if (ts.length >= 2) {
-      const g = newGate('or')
-      ts.forEach((t) => { edges.push({ source: t.from_ids[0], target: g, condition: t.condition }); used.add(t) })
-      edges.push({ source: g, target: to })
-    }
-  }
-
-  // Lone 1→1 transitions become plain edges.
-  for (const t of rest) if (!used.has(t)) edges.push({ source: t.from_ids[0], target: t.to_ids[0], condition: t.condition })
+  // The initial steps are those no transition ever targets — wire START straight to each.
+  const targeted = new Set(recipe.transitions.flatMap((t) => t.to_ids))
+  for (const s of recipe.steps) if (!targeted.has(s.id)) edges.push({ source: START_ID, target: s.id })
 
   return { nodes, edges }
 }

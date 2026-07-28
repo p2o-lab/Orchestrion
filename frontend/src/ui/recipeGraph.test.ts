@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Condition, MasterRecipe, Transition } from '../api/types'
-import { graphToTransitions, recipeToGraph, type GraphEdge, type GraphNode } from './recipeGraph'
+import { graphToTransitions, recipeToGraph, START_ID, END_ID, type GraphEdge, type GraphNode } from './recipeGraph'
 
 const step = (id: string, pea = 1, service = 'Stirring', proc = 1): GraphNode => ({
   id, kind: 'step', pea_id: pea, service, procedure_id: proc, params: {},
 })
 const cond = (state: string, pea = 1, service = 'Stirring'): Condition => ({ type: 'StateReached', pea_id: pea, service, state })
+const trans = (id: string, condition?: Condition): GraphNode => ({ id, kind: 'transition', condition })
 
 function canonCond(c: Condition): Condition {
   if (c.type === 'And' || c.type === 'Or') {
@@ -30,27 +31,49 @@ function recipeOf(nodes: GraphNode[], transitions: Transition[]): MasterRecipe {
   }
 }
 
-describe('AND gateway', () => {
-  it('split → one multi-target transition (parallel)', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'a', kind: 'and' }]
+describe('GRAFCET series', () => {
+  it('start → s1 → T → s2 → T → END', () => {
+    const nodes: GraphNode[] = [
+      { id: START_ID, kind: 'start' }, step('s1'), step('s2'), { id: END_ID, kind: 'end' },
+      trans('t1', cond('COMPLETED')), trans('t2', cond('COMPLETED', 2)),
+    ]
     const edges: GraphEdge[] = [
-      { source: 's1', target: 'a', condition: cond('COMPLETED') },
-      { source: 'a', target: 's2' },
-      { source: 'a', target: 's3' },
+      { source: START_ID, target: 's1' },
+      { source: 's1', target: 't1' }, { source: 't1', target: 's2' },
+      { source: 's2', target: 't2' }, { source: 't2', target: END_ID },
     ]
     const { transitions, error } = graphToTransitions(nodes, edges)
     expect(error).toBeNull()
+    expect(canon(transitions)).toEqual(canon([
+      { from_ids: ['s1'], to_ids: ['s2'], condition: cond('COMPLETED') },
+      { from_ids: ['s2'], to_ids: [END_ID], condition: cond('COMPLETED', 2) },
+    ]))
+  })
+
+  it('defaults a bare transition to source ✓ COMPLETED', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), trans('t1')]
+    const edges: GraphEdge[] = [{ source: 's1', target: 't1' }, { source: 't1', target: 's2' }]
+    const { transitions } = graphToTransitions(nodes, edges)
+    expect(transitions[0].condition).toEqual(cond('COMPLETED'))
+  })
+})
+
+describe('AND (simultaneous) — one transition, many branches', () => {
+  it('divergence → one multi-target transition', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), trans('t1', cond('COMPLETED'))]
+    const edges: GraphEdge[] = [
+      { source: 's1', target: 't1' }, { source: 't1', target: 's2' }, { source: 't1', target: 's3' },
+    ]
+    const { transitions } = graphToTransitions(nodes, edges)
     expect(transitions).toHaveLength(1)
     expect(transitions[0].from_ids).toEqual(['s1'])
     expect([...transitions[0].to_ids].sort()).toEqual(['s2', 's3'])
   })
 
-  it('merge → one multi-source transition with a single condition', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'a', kind: 'and' }]
+  it('convergence → one multi-source transition (join)', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), trans('t1', cond('EXECUTE'))]
     const edges: GraphEdge[] = [
-      { source: 's1', target: 'a' },
-      { source: 's2', target: 'a' },
-      { source: 'a', target: 's3', condition: cond('EXECUTE') },
+      { source: 's1', target: 't1' }, { source: 's2', target: 't1' }, { source: 't1', target: 's3' },
     ]
     const { transitions } = graphToTransitions(nodes, edges)
     expect(transitions).toHaveLength(1)
@@ -59,19 +82,17 @@ describe('AND gateway', () => {
     expect(transitions[0].condition).toEqual(cond('EXECUTE'))
   })
 
-  it('round-trips an AND split→merge diamond', () => {
+  it('round-trips an AND split→join diamond', () => {
     const nodes: GraphNode[] = [
       step('s0'), step('s1'), step('s2'), step('s3'),
-      { id: 'a1', kind: 'and' }, { id: 'a2', kind: 'and' }, { id: 'END', kind: 'end' },
+      trans('t1', cond('COMPLETED')), trans('t2', cond('EXECUTE')), trans('t3', cond('COMPLETED', 3)),
+      { id: END_ID, kind: 'end' }, { id: START_ID, kind: 'start' },
     ]
     const edges: GraphEdge[] = [
-      { source: 's0', target: 'a1', condition: cond('COMPLETED') },
-      { source: 'a1', target: 's1' },
-      { source: 'a1', target: 's2' },
-      { source: 's1', target: 'a2' },
-      { source: 's2', target: 'a2' },
-      { source: 'a2', target: 's3', condition: cond('EXECUTE') },
-      { source: 's3', target: 'END', condition: cond('COMPLETED') },
+      { source: START_ID, target: 's0' },
+      { source: 's0', target: 't1' }, { source: 't1', target: 's1' }, { source: 't1', target: 's2' },
+      { source: 's1', target: 't2' }, { source: 's2', target: 't2' }, { source: 't2', target: 's3' },
+      { source: 's3', target: 't3' }, { source: 't3', target: END_ID },
     ]
     const t1 = graphToTransitions(nodes, edges).transitions
     const g2 = recipeToGraph(recipeOf(nodes, t1))
@@ -80,70 +101,57 @@ describe('AND gateway', () => {
   })
 })
 
-describe('OR gateway', () => {
-  it('split → one transition per branch (selection)', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'o', kind: 'or' }]
+describe('OR (selection) — many transitions from/into one step', () => {
+  it('divergence → one transition per branch', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), trans('t1', cond('EXECUTE')), trans('t2', cond('HELD'))]
     const edges: GraphEdge[] = [
-      { source: 's1', target: 'o' },
-      { source: 'o', target: 's2', condition: cond('EXECUTE') },
-      { source: 'o', target: 's3', condition: cond('HELD') },
+      { source: 's1', target: 't1' }, { source: 't1', target: 's2' },
+      { source: 's1', target: 't2' }, { source: 't2', target: 's3' },
     ]
     const { transitions } = graphToTransitions(nodes, edges)
     expect(transitions).toHaveLength(2)
     expect(transitions.every((t) => t.from_ids[0] === 's1' && t.to_ids.length === 1)).toBe(true)
   })
 
-  it('merge → one transition per branch into the target', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'o', kind: 'or' }]
+  it('convergence → one transition per branch into the target', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), trans('t1', cond('COMPLETED')), trans('t2', cond('COMPLETED', 2))]
     const edges: GraphEdge[] = [
-      { source: 's1', target: 'o', condition: cond('EXECUTE') },
-      { source: 's2', target: 'o', condition: cond('HELD') },
-      { source: 'o', target: 's3' },
+      { source: 's1', target: 't1' }, { source: 't1', target: 's3' },
+      { source: 's2', target: 't2' }, { source: 't2', target: 's3' },
     ]
     const { transitions } = graphToTransitions(nodes, edges)
     expect(transitions).toHaveLength(2)
     expect(transitions.every((t) => t.to_ids[0] === 's3' && t.from_ids.length === 1)).toBe(true)
   })
 
-  it('round-trips an OR split', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'o', kind: 'or' }]
+  it('round-trips an OR divergence', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), trans('t1', cond('EXECUTE')), trans('t2', cond('HELD'))]
     const edges: GraphEdge[] = [
-      { source: 's1', target: 'o' },
-      { source: 'o', target: 's2', condition: cond('EXECUTE') },
-      { source: 'o', target: 's3', condition: cond('HELD') },
+      { source: 's1', target: 't1' }, { source: 't1', target: 's2' },
+      { source: 's1', target: 't2' }, { source: 't2', target: 's3' },
     ]
     const t1 = graphToTransitions(nodes, edges).transitions
     const g2 = recipeToGraph(recipeOf(nodes, t1))
-    expect(g2.nodes.some((n) => n.kind === 'or')).toBe(true)
-    expect(canon(graphToTransitions(g2.nodes, g2.edges).transitions)).toEqual(canon(t1))
-  })
-
-  it('round-trips an OR merge', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), { id: 'o', kind: 'or' }]
-    const edges: GraphEdge[] = [
-      { source: 's1', target: 'o', condition: cond('EXECUTE') },
-      { source: 's2', target: 'o', condition: cond('HELD') },
-      { source: 'o', target: 's3' },
-    ]
-    const t1 = graphToTransitions(nodes, edges).transitions
-    const g2 = recipeToGraph(recipeOf(nodes, t1))
-    expect(g2.nodes.some((n) => n.kind === 'or')).toBe(true)
     expect(canon(graphToTransitions(g2.nodes, g2.edges).transitions)).toEqual(canon(t1))
   })
 })
 
-describe('validation', () => {
-  it('rejects a gateway that is both a split and a merge', () => {
-    const nodes: GraphNode[] = [step('s1'), step('s2'), step('s3'), step('s4'), { id: 'a', kind: 'and' }]
-    const edges: GraphEdge[] = [
-      { source: 's1', target: 'a' }, { source: 's2', target: 'a' },
-      { source: 'a', target: 's3' }, { source: 'a', target: 's4' },
-    ]
-    expect(graphToTransitions(nodes, edges).error).toMatch(/split .* or a merge/i)
+describe('GRAFCET alternation rules', () => {
+  it('rejects a step wired straight to another step', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2')]
+    expect(graphToTransitions(nodes, [{ source: 's1', target: 's2' }]).error).toMatch(/alternates steps and transitions/i)
   })
 
-  it('rejects a dangling gateway', () => {
-    const nodes: GraphNode[] = [step('s1'), { id: 'a', kind: 'and' }]
-    expect(graphToTransitions(nodes, [{ source: 's1', target: 'a' }]).error).toMatch(/input and one output/i)
+  it('rejects two transitions wired together', () => {
+    const nodes: GraphNode[] = [step('s1'), step('s2'), trans('t1'), trans('t2')]
+    const edges: GraphEdge[] = [
+      { source: 's1', target: 't1' }, { source: 't1', target: 't2' }, { source: 't2', target: 's2' },
+    ]
+    expect(graphToTransitions(nodes, edges).error).toMatch(/alternates steps and transitions/i)
+  })
+
+  it('rejects a dangling transition (no step before or after)', () => {
+    const nodes: GraphNode[] = [step('s1'), trans('t1')]
+    expect(graphToTransitions(nodes, [{ source: 's1', target: 't1' }]).error).toMatch(/before it and one after/i)
   })
 })

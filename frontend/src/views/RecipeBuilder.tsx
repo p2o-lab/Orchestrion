@@ -4,6 +4,7 @@ import {
   addEdge,
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   Panel,
   ReactFlow,
@@ -17,22 +18,25 @@ import {
 import '@xyflow/react/dist/style.css'
 import { api } from '../api/client'
 import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeHeader, RecipeStep } from '../api/types'
-import { graphToTransitions, recipeToGraph, END_ID, type GraphEdge, type GraphNode } from '../ui/recipeGraph'
+import { graphToTransitions, recipeToGraph, START_ID, END_ID, type GraphEdge, type GraphNode } from '../ui/recipeGraph'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
 import { EndNode } from './EndNode'
-import { AndNode, OrNode } from './FlowNodes'
+import { StartNode, TransitionNode, type TransitionNodeData } from './FlowNodes'
 import { ConditionEditor } from './ConditionEditor'
 import { StepEditor } from './StepEditor'
 import { RecipeSettings } from './RecipeSettings'
 import { NodePalette, DRAG_KEY, type PaletteKind } from './NodePalette'
 
-const nodeTypes = { step: StepNode, end: EndNode, and: AndNode, or: OrNode }
+const nodeTypes = { start: StartNode, step: StepNode, transition: TransitionNode, end: EndNode }
 const DEFAULT_COND: Condition = { type: 'StateReached', pea_id: 0, service: '', state: 'COMPLETED' }
 
 const selectClass =
   'w-full rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20'
+
+// A plain directed GRAFCET link — just an arrow. The guard lives on the transition node, not here.
+const EDGE: Partial<Edge> = { markerEnd: { type: MarkerType.ArrowClosed, color: '#7c9cff' }, style: { stroke: '#7c9cff', strokeWidth: 1.6 } }
 
 function nextStepId(ids: string[]): string {
   const used = new Set(ids)
@@ -51,9 +55,7 @@ function summarize(c: Condition): string {
   }
 }
 
-function edgeFor(source: string, target: string, condition: Condition, key: string): Edge {
-  return { id: key, source, target, label: summarize(condition), data: { condition } }
-}
+const arrow = (source: string, target: string, key: string): Edge => ({ id: key, source, target, ...EDGE })
 
 // ── React Flow node/edge ⇄ the pure GraphNode/GraphEdge the mapping module speaks ──
 function toGraphNode(n: Node): GraphNode {
@@ -61,13 +63,11 @@ function toGraphNode(n: Node): GraphNode {
     const d = n.data as StepNodeData
     return { id: n.id, kind: 'step', pea_id: d.pea_id, service: d.service, procedure_id: d.procedure_id, params: d.params, x: n.position.x, y: n.position.y }
   }
-  if (n.type === 'and') return { id: n.id, kind: 'and' }
-  if (n.type === 'or') return { id: n.id, kind: 'or' }
+  if (n.type === 'transition') return { id: n.id, kind: 'transition', condition: (n.data as TransitionNodeData).condition }
+  if (n.type === 'start') return { id: n.id, kind: 'start' }
   return { id: n.id, kind: 'end' }
 }
-function toGraphEdge(e: Edge): GraphEdge {
-  return { source: e.source, target: e.target, condition: (e.data as { condition?: Condition } | undefined)?.condition }
-}
+const toGraphEdge = (e: Edge): GraphEdge => ({ source: e.source, target: e.target })
 
 export function RecipeBuilder() {
   const { projectId, recipeId } = useParams()
@@ -80,7 +80,7 @@ export function RecipeBuilder() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [adding, setAdding] = useState(false)
-  const [editingEdge, setEditingEdge] = useState<Edge | null>(null)
+  const [editingTransition, setEditingTransition] = useState<Node | null>(null)
   const [editingStep, setEditingStep] = useState<Node | null>(null)
   const [header, setHeader] = useState<RecipeHeader | null>(null)
   const [formula, setFormula] = useState<Record<string, number>>({})
@@ -89,7 +89,7 @@ export function RecipeBuilder() {
   const [saved, setSaved] = useState(false)
   const [rf, setRf] = useState<ReactFlowInstance | null>(null)
   const [showMiniMap, setShowMiniMap] = useState(true)
-  const stepDropPos = useRef<{ x: number; y: number } | null>(null)
+  const dropPos = useRef<{ x: number; y: number } | null>(null)
   const seeded = useRef(false)
 
   useEffect(() => {
@@ -114,24 +114,30 @@ export function RecipeBuilder() {
     [peaById],
   )
 
-  // Seed the canvas once recipe + PEAs are in — reconstructing fork/join from the transitions.
+  // Seed the canvas once recipe + PEAs are in — GRAFCET graph from the transitions (§5.3.1).
   useEffect(() => {
     if (seeded.current || !recipe || !peas) return
     seeded.current = true
     const g = recipeToGraph(recipe.definition)
 
+    // Position steps on a grid (honouring saved x/y), then place transitions/START/END at the
+    // centroid of their neighbours so the alternation reads left→right.
     const pos: Record<string, { x: number; y: number }> = {}
     g.nodes.filter((n) => n.kind === 'step').forEach((n, i) => {
-      pos[n.id] = { x: n.x ?? 80 + (i % 4) * 240, y: n.y ?? 80 + Math.floor(i / 4) * 170 }
+      pos[n.id] = { x: n.x ?? 220 + (i % 3) * 320, y: n.y ?? 120 + Math.floor(i / 3) * 190 }
     })
-    pos[END_ID] = { x: 80 + 3 * 240, y: 380 }
-    g.nodes.filter((n) => n.kind === 'and' || n.kind === 'or').forEach((n) => {
-      const neigh = g.edges.filter((e) => e.source === n.id || e.target === n.id).map((e) => (e.source === n.id ? e.target : e.source))
-      const pts = neigh.map((id) => pos[id]).filter(Boolean) as { x: number; y: number }[]
-      pos[n.id] = pts.length
-        ? { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length }
-        : { x: 340, y: 200 }
-    })
+    const centroid = (id: string, fallback: { x: number; y: number }, dx = 0) => {
+      const pts = g.edges
+        .filter((e) => e.source === id || e.target === id)
+        .map((e) => pos[e.source === id ? e.target : e.source])
+        .filter(Boolean) as { x: number; y: number }[]
+      pos[id] = pts.length
+        ? { x: pts.reduce((s, p) => s + p.x, 0) / pts.length + dx, y: pts.reduce((s, p) => s + p.y, 0) / pts.length }
+        : fallback
+    }
+    g.nodes.filter((n) => n.kind === 'transition').forEach((n) => centroid(n.id, { x: 360, y: 200 }))
+    centroid(START_ID, { x: 60, y: 120 }, -170)
+    centroid(END_ID, { x: 900, y: 200 }, 170)
 
     const rfNodes: Node[] = g.nodes.map((n) => {
       if (n.kind === 'step')
@@ -143,13 +149,12 @@ export function RecipeBuilder() {
             procedure: procedureName(n.pea_id!, n.service!, n.procedure_id!),
           } satisfies StepNodeData,
         }
-      if (n.kind === 'end') return { id: n.id, type: 'end', deletable: false, position: pos[n.id], data: {} }
-      return { id: n.id, type: n.kind, position: pos[n.id], data: {} } // 'and' | 'or'
+      if (n.kind === 'transition')
+        return { id: n.id, type: 'transition', position: pos[n.id], data: { condition: n.condition, label: n.condition ? summarize(n.condition) : undefined } satisfies TransitionNodeData }
+      if (n.kind === 'start') return { id: n.id, type: 'start', deletable: false, position: pos[n.id], data: {} }
+      return { id: n.id, type: 'end', deletable: false, position: pos[n.id], data: {} }
     })
-    const rfEdges: Edge[] = g.edges.map((e, i) => {
-      const key = `t${i}-${e.source}-${e.target}`
-      return e.condition ? edgeFor(e.source, e.target, e.condition, key) : { id: key, source: e.source, target: e.target }
-    })
+    const rfEdges: Edge[] = g.edges.map((e, i) => arrow(e.source, e.target, `t${i}-${e.source}-${e.target}`))
 
     setHeader(recipe.definition.header)
     setFormula(recipe.definition.formula)
@@ -157,32 +162,41 @@ export function RecipeBuilder() {
     setEdges(rfEdges)
   }, [recipe, peas, peaById, procedureName, setNodes, setEdges])
 
-  // Connect nodes. A plain step→(step|end) edge gets a default condition; edges touching a gateway
-  // start bare — click the relevant one (the split's input / the merge's output / each OR branch)
-  // to set its condition. graphToTransitions defaults any still-empty guard to "source ✓ COMPLETED".
-  const onConnect = useCallback(
-    (c: Connection) => {
-      if (!c.source || !c.target || c.source === c.target) return
-      const srcNode = nodes.find((n) => n.id === c.source)
-      const tgtNode = nodes.find((n) => n.id === c.target)
-      const gate = (t?: string) => t === 'and' || t === 'or'
-      const plain = srcNode?.type === 'step' && !gate(tgtNode?.type)
-      setEdges((es) => {
-        const key = `e-${c.source}-${c.target}-${Date.now()}`
-        if (plain) {
-          const d = srcNode!.data as StepNodeData
-          const condition: Condition = { type: 'StateReached', pea_id: d.pea_id, service: d.service, state: 'COMPLETED' }
-          return addEdge(edgeFor(c.source!, c.target!, condition, key), es)
-        }
-        return addEdge({ id: key, source: c.source!, target: c.target! }, es)
-      })
-      setSaved(false)
+  // GRAFCET alternation: only step→transition, transition→(step|end), and start→step are legal.
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) => {
+      const s = nodes.find((n) => n.id === c.source)?.type
+      const t = nodes.find((n) => n.id === c.target)?.type
+      if (!s || !t || c.source === c.target || s === 'end' || t === 'start') return false
+      if (s === 'start') return t === 'step'
+      if (s === 'step') return t === 'transition'
+      if (s === 'transition') return t === 'step' || t === 'end'
+      return false
     },
-    [nodes, setEdges],
+    [nodes],
   )
 
-  function updateEdgeCondition(edgeId: string, condition: Condition) {
-    setEdges((es) => es.map((e) => (e.id === edgeId ? { ...e, label: summarize(condition), data: { condition } } : e)))
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (!isValidConnection(c)) return
+      const key = `e-${c.source}-${c.target}-${Date.now()}`
+      setEdges((es) => addEdge(arrow(c.source!, c.target!, key), es))
+      // A transition's default guard = its (first) upstream step reaching COMPLETED — so a guard
+      // shows the moment you wire a step into it, instead of a bare bar.
+      const srcNode = nodes.find((n) => n.id === c.source)
+      const tgtNode = nodes.find((n) => n.id === c.target)
+      if (tgtNode?.type === 'transition' && srcNode?.type === 'step' && !(tgtNode.data as TransitionNodeData).condition) {
+        const d = srcNode.data as StepNodeData
+        const condition: Condition = { type: 'StateReached', pea_id: d.pea_id, service: d.service, state: 'COMPLETED' }
+        setNodes((ns) => ns.map((n) => (n.id === tgtNode.id ? { ...n, data: { condition, label: summarize(condition) } } : n)))
+      }
+      setSaved(false)
+    },
+    [nodes, setEdges, setNodes, isValidConnection],
+  )
+
+  function updateTransitionCondition(nodeId: string, condition: Condition) {
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { condition, label: summarize(condition) } } : n)))
     setSaved(false)
   }
   function updateStepParams(nodeId: string, params: Record<string, number>) {
@@ -192,8 +206,8 @@ export function RecipeBuilder() {
 
   function addStep(peaId: number, service: string, procedureId: number) {
     const id = nextStepId(nodes.filter((n) => n.type === 'step').map((n) => n.id))
-    const position = stepDropPos.current ?? { x: 180, y: 140 }
-    stepDropPos.current = null
+    const position = dropPos.current ?? { x: 300, y: 160 }
+    dropPos.current = null
     setNodes((ns) => [
       ...ns,
       {
@@ -206,16 +220,16 @@ export function RecipeBuilder() {
     ])
     setSaved(false)
   }
-  function addFlowNode(kind: 'and' | 'or', position = { x: 360, y: 180 }) {
-    const id = `${kind}-${Date.now()}`
-    setNodes((ns) => [...ns, { id, type: kind, position, data: {} }])
+  function addTransition(position = { x: 360, y: 180 }) {
+    const id = `tr-${Date.now()}`
+    setNodes((ns) => [...ns, { id, type: 'transition', position, data: {} satisfies TransitionNodeData }])
     setSaved(false)
   }
 
   // Palette: click drops in the middle; drag drops where released.
   function onQuickAdd(kind: PaletteKind) {
-    if (kind === 'step') { stepDropPos.current = null; setAdding(true) }
-    else addFlowNode(kind)
+    if (kind === 'step') { dropPos.current = null; setAdding(true) }
+    else addTransition()
   }
   const onDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
@@ -227,8 +241,8 @@ export function RecipeBuilder() {
       const kind = e.dataTransfer.getData(DRAG_KEY) as PaletteKind
       if (!kind || !rf) return
       const position = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY })
-      if (kind === 'step') { stepDropPos.current = position; setAdding(true) }
-      else addFlowNode(kind, position)
+      if (kind === 'step') { dropPos.current = position; setAdding(true) }
+      else addTransition(position)
     },
     [rf],
   )
@@ -302,8 +316,11 @@ export function RecipeBuilder() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
-                onEdgeClick={(_, edge) => setEditingEdge(edge)}
-                onNodeDoubleClick={(_, node) => { if (node.type === 'step') setEditingStep(node) }}
+                isValidConnection={isValidConnection}
+                onNodeDoubleClick={(_, node) => {
+                  if (node.type === 'step') setEditingStep(node)
+                  else if (node.type === 'transition') setEditingTransition(node)
+                }}
                 nodeTypes={nodeTypes}
                 colorMode="dark"
                 fitView
@@ -331,14 +348,16 @@ export function RecipeBuilder() {
                     maskColor="rgba(20,25,36,0.7)"
                     nodeStrokeWidth={0}
                     nodeBorderRadius={4}
-                    nodeColor={(n) => (n.type === 'or' ? '#fbbf24' : n.type === 'end' ? '#2dd4bf' : '#7c9cff')}
+                    nodeColor={(n) =>
+                      n.type === 'transition' ? '#fbbf24' : n.type === 'end' || n.type === 'start' ? '#2dd4bf' : '#7c9cff'
+                    }
                     className="!overflow-hidden !rounded-lg !border !border-edge"
                   />
                 )}
               </ReactFlow>
               {nodes.filter((n) => n.type === 'step').length === 0 && (
                 <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                  <p className="text-sm text-faint">Drag a <span className="text-dim">Step</span> from the top onto the canvas.</p>
+                  <p className="text-sm text-faint">Drag a <span className="text-dim">Step</span> from the top, then a <span className="text-warn">Transition</span> between steps.</p>
                 </div>
               )}
             </>
@@ -353,12 +372,12 @@ export function RecipeBuilder() {
         />
       )}
 
-      {editingEdge && peas && (
+      {editingTransition && peas && (
         <ConditionEditor
           peas={peas}
-          initial={(editingEdge.data as { condition?: Condition }).condition ?? DEFAULT_COND}
-          onClose={() => setEditingEdge(null)}
-          onSave={(condition) => { updateEdgeCondition(editingEdge.id, condition); setEditingEdge(null) }}
+          initial={(editingTransition.data as TransitionNodeData).condition ?? DEFAULT_COND}
+          onClose={() => setEditingTransition(null)}
+          onSave={(condition) => { updateTransitionCondition(editingTransition.id, condition); setEditingTransition(null) }}
         />
       )}
 
