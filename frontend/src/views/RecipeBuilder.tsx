@@ -14,12 +14,22 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { api } from '../api/client'
-import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeStep, Transition } from '../api/types'
+import type {
+  Condition,
+  MasterRecipe,
+  PeaDetail,
+  RecipeDetail,
+  RecipeHeader,
+  RecipeStep,
+  Transition,
+} from '../api/types'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
 import { EndNode } from './EndNode'
 import { ConditionEditor } from './ConditionEditor'
+import { StepEditor } from './StepEditor'
+import { RecipeSettings } from './RecipeSettings'
 
 const nodeTypes = { step: StepNode, end: EndNode }
 
@@ -67,6 +77,10 @@ export function RecipeBuilder() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [adding, setAdding] = useState(false)
   const [editingEdge, setEditingEdge] = useState<Edge | null>(null)
+  const [editingStep, setEditingStep] = useState<Node | null>(null)
+  const [header, setHeader] = useState<RecipeHeader | null>(null)
+  const [formula, setFormula] = useState<Record<string, number>>({})
+  const [showSettings, setShowSettings] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const seeded = useRef(false)
@@ -118,6 +132,8 @@ export function RecipeBuilder() {
       position: { x: 80 + (recipe.definition.steps.length % 4 || 2) * 240, y: 360 },
       data: {},
     }
+    setHeader(recipe.definition.header)
+    setFormula(recipe.definition.formula)
     setNodes([...stepNodes, endNode])
     setEdges(
       recipe.definition.transitions.flatMap((t, ti) =>
@@ -151,6 +167,13 @@ export function RecipeBuilder() {
   function updateEdgeCondition(edgeId: string, condition: Condition) {
     setEdges((es) =>
       es.map((e) => (e.id === edgeId ? { ...e, label: summarize(condition), data: { condition } } : e)),
+    )
+    setSaved(false)
+  }
+
+  function updateStepParams(nodeId: string, params: Record<string, number>) {
+    setNodes((ns) =>
+      ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, params } } : n)),
     )
     setSaved(false)
   }
@@ -200,8 +223,8 @@ export function RecipeBuilder() {
         condition: (e.data as { condition: Condition }).condition,
       }))
       const definition: MasterRecipe = {
-        header: recipe.definition.header,
-        formula: recipe.definition.formula,
+        header: header ?? recipe.definition.header,
+        formula,
         steps,
         transitions,
       }
@@ -228,10 +251,13 @@ export function RecipeBuilder() {
             <Icon name="chevron" size={13} />
             <span>Recipe</span>
           </div>
-          <h1 className="truncate text-xl text-ink">{recipe?.name ?? '…'}</h1>
+          <h1 className="truncate text-xl text-ink">{header?.name ?? recipe?.name ?? '…'}</h1>
         </div>
         <div className="flex items-center gap-3">
           {error && <span className="max-w-xs truncate text-xs text-danger" title={error}>{error}</span>}
+          <Button variant="ghost" small onClick={() => setShowSettings(true)} disabled={!recipe}>
+            <Icon name="pencil" size={15} /> Settings
+          </Button>
           <Button variant="ghost" small onClick={() => setAdding(true)} disabled={!peas}>
             <Icon name="plus" size={15} /> Add step
           </Button>
@@ -257,6 +283,7 @@ export function RecipeBuilder() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onEdgeClick={(_, edge) => setEditingEdge(edge)}
+              onNodeDoubleClick={(_, node) => node.type === 'step' && setEditingStep(node)}
               nodeTypes={nodeTypes}
               colorMode="dark"
               fitView
@@ -299,6 +326,32 @@ export function RecipeBuilder() {
           onSave={(condition) => {
             updateEdgeCondition(editingEdge.id, condition)
             setEditingEdge(null)
+          }}
+        />
+      )}
+
+      {editingStep && peas && (
+        <StepEditor
+          pea={peas.find((p) => p.id === (editingStep.data as StepNodeData).pea_id)}
+          data={editingStep.data as StepNodeData}
+          onClose={() => setEditingStep(null)}
+          onSave={(params) => {
+            updateStepParams(editingStep.id, params)
+            setEditingStep(null)
+          }}
+        />
+      )}
+
+      {showSettings && header && (
+        <RecipeSettings
+          header={header}
+          formula={formula}
+          onClose={() => setShowSettings(false)}
+          onSave={(h, f) => {
+            setHeader(h)
+            setFormula(f)
+            setSaved(false)
+            setShowSettings(false)
           }}
         />
       )}
