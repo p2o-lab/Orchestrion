@@ -13,6 +13,13 @@ silently dropped — research §4.3.1's #1 integration failure.
 
 Writes use the operator channel (`*Op`) since a conformant PEA defaults `StateChannel`
 / `SrcChannel` to 0 (Table 13: "*Op relevant if StateChannel is false").
+
+Two further rules, both from §6.2.2.4 and both added with the step-model correction:
+  - **Every command is checked against `CommandEn` first.** A command whose bit is clear
+    is not merely unwise — the PEA "shall not execute" it, silently. See
+    `require_command_enabled`.
+  - **The mode handshake precedes even `RESET`.** Pre-flight (`ensure_idle`) therefore
+    goes through `command_service`, never bare `send_command`.
 """
 
 from __future__ import annotations
@@ -23,10 +30,16 @@ from collections.abc import Callable
 
 from orchestrion.mtp.model import ProcedureParameter, Service, ValueObject
 from orchestrion.opcua.connection import PeaConnection
-from orchestrion.state.codes import Command
+from orchestrion.state.classification import is_final
+from orchestrion.state.codes import Command, ServiceState, decode_command_en
 
 _CONFIRM_TIMEOUT = 6.0   # generous — real PEAs (and a loaded test box) can be slow
 _POLL = 0.1
+
+# RESETTING "prepares the procedural element and equipment for the next execution"
+# ([IEC 61512-1] Table B.2) — on real equipment that can mean physical cleanup, so it
+# gets a longer budget than a mode/procedure readback.
+_RESET_TIMEOUT = 15.0
 
 
 class ServiceControlError(RuntimeError):
@@ -86,8 +99,48 @@ async def select_procedure(conn: PeaConnection, service: Service, procedure_id: 
     )
 
 
+async def read_command_en(conn: PeaConnection, service: Service) -> frozenset[Command]:
+    """The commands the PEA currently allows — [2658-4:2022] §6.2.2.4.
+
+    Read, never computed: §6.2.2.4 says the PEA may lock a transition "based on existing
+    process values or interlocks at the control module level", so `StateCur` alone cannot
+    predict it. Only the PEA writes `CommandEn`; the POL has read access only.
+    """
+    return decode_command_en(int(await conn.read_control(service, "CommandEn")))
+
+
+async def require_command_enabled(
+    conn: PeaConnection, service: Service, command: Command
+) -> None:
+    """Raise unless `command`'s `CommandEn` bit is set — [2658-4:2022] §6.2.2.4.
+
+    "If the value of CommandEn indicates that a command is not requestable, this command
+    should not be able to be initiated by the operator or the POL. The command shall
+    first be enabled by the PEA."
+
+    Without this the write is accepted by the server and **silently discarded** by the
+    PEA, which is exactly how a `Start` issued to a service sitting in `COMPLETED`
+    produced a recipe that ran one step and reported success.
+    """
+    enabled = await read_command_en(conn, service)
+    if command in enabled:
+        return
+    state = await conn.read_state(service)
+    allowed = ", ".join(sorted(c.name for c in enabled)) or "nothing"
+    raise ServiceControlError(
+        f"{service.name}: {command.name} is not enabled — the PEA would ignore it "
+        f"(state {state.name}; CommandEn allows {allowed})"
+    )
+
+
 async def send_command(conn: PeaConnection, service: Service, command: Command) -> None:
-    """[§8.2.2.3] Write a command to `CommandExt` (honoured in Automatic + External)."""
+    """[§8.2.2.3] Write a command to `CommandExt` (honoured in Automatic + External).
+
+    Guarded by `CommandEn` first (§6.2.2.4) — see `require_command_enabled`. The check is
+    advisory in the sense that the PEA enforces it too, but doing it here turns a silent
+    no-op into a named error, which is the whole point.
+    """
+    await require_command_enabled(conn, service, command)
     await conn.write_control(service, "CommandExt", int(command))
 
 
@@ -192,3 +245,99 @@ async def command_service(
     changed = await ensure_automatic_external(conn, service)
     await send_command(conn, service, command)
     return changed
+
+
+# ---------------------------------------------------------------------------------
+# Pre-flight — what must be true before a recipe step may issue `Start`.
+# `POL_Step_Model_ISA88.md` §1 (initiate + await termination) and §4 (the four cases).
+# These are primitives; the recipe engine composes them. `start_service` above is left
+# as the bare handshake+Start it has always been, so the M3 HMI path is unchanged.
+# ---------------------------------------------------------------------------------
+
+
+async def await_state(
+    conn: PeaConnection,
+    service: Service,
+    accept: Callable[[ServiceState], bool],
+    what: str,
+    *,
+    timeout: float = _CONFIRM_TIMEOUT,
+) -> ServiceState:
+    """Poll `StateCur` until `accept` says yes; raise on timeout. Returns the state seen.
+
+    Reads the node directly rather than a subscription cache: the caller needs the state
+    *at a known instant*, and a cache can have moved on (`POL_Step_Model_ISA88.md` §5).
+
+    Not for awaiting *termination* — a step may legitimately run for hours. This budget
+    is for handshake-scale waits only; the engine polls for termination itself.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        state = await conn.read_state(service)
+        if accept(state):
+            return state
+        if time.monotonic() >= deadline:
+            raise ServiceControlError(
+                f"{service.name}: timed out waiting for {what} (still {state.name})"
+            )
+        await asyncio.sleep(_POLL)
+
+
+async def await_started(conn: PeaConnection, service: Service) -> ServiceState:
+    """Wait until the service has left `IDLE` after a `Start`.
+
+    ⚠ **Any** state other than `IDLE` counts as started — including a *final* state.
+    A self-completing procedure can run to `COMPLETED` between two polls (the VirtualPEA
+    publishes `EXECUTE` for a single 50 ms scan and never publishes `STARTING` at all —
+    `progress/010` §7), so waiting for an *acting* state would hang forever on exactly
+    the case the step model exists to fix.
+    """
+    return await await_state(
+        conn, service, lambda s: s is not ServiceState.IDLE, "the service to leave IDLE"
+    )
+
+
+async def ensure_idle(conn: PeaConnection, service: Service) -> None:
+    """Bring the service to `IDLE`, or fail loudly — `POL_Step_Model_ISA88.md` §4.
+
+    | service is | do |
+    |---|---|
+    | `IDLE` | nothing |
+    | a final state | `RESET`, wait for `IDLE` |
+    | `RESETTING` | already on its way — wait for `IDLE` |
+    | anything else | raise: somebody else is using this service |
+
+    [IEC 61512-1] Table B.2 makes the second row mandatory, not housekeeping: `COMPLETE`
+    "waits in the final state for a RESET command", and RESETTING "always becomes active
+    between executions of the Process-oriented task".
+
+    `COMPLETING`/`STOPPING`/`ABORTING` are deliberately **not** waited on even though they
+    also lead somewhere resettable: each means another owner started this service and it
+    is now finishing. Waiting would queue us behind them and seize the equipment the
+    moment they let go. **Ownership, not reachability, is the test.**
+    """
+    state = await conn.read_state(service)
+    if state is ServiceState.IDLE:
+        return
+
+    if is_final(state):
+        # RESET rides CommandExt, which the PEA honours only in the matching operation
+        # mode (§8.2.2.3) — so this MUST go through `command_service` (which runs the
+        # idempotent handshake first), never bare `send_command`.
+        await command_service(conn, service, Command.RESET)
+        await await_state(
+            conn, service, lambda s: s is ServiceState.IDLE,
+            "IDLE after RESET", timeout=_RESET_TIMEOUT,
+        )
+        return
+
+    if state is ServiceState.RESETTING:
+        await await_state(
+            conn, service, lambda s: s is ServiceState.IDLE,
+            "IDLE (already RESETTING)", timeout=_RESET_TIMEOUT,
+        )
+        return
+
+    raise ServiceControlError(
+        f"{service.name} is {state.name} (in use) — cannot start it"
+    )
