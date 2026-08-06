@@ -32,6 +32,32 @@ export function TransitionNode({ data, selected }: NodeProps) {
   )
 }
 
+// The GRAFCET branch junctions — pure synchronisation/selection, they carry NO condition.
+//   AND (═, divergence/convergence en ET) — simultaneous: one transition splits to parallel steps,
+//       or parallel steps synchronise into one transition. Drawn as the DOUBLE line.
+//   OR  (─, divergence/convergence en OU) — selection: one step opens onto branch transitions, or
+//       branch transitions merge into one step. Drawn as the SINGLE line.
+// Both connect on either side (a bar is a divergence or a convergence depending on how it is wired).
+function Bar({ lines, tone, dot, label }: { lines: 1 | 2; tone: string; dot: string; label: string }) {
+  return (
+    <div className="relative flex items-center gap-[3px]">
+      <Handle type="target" position={Position.Left} className={`!h-2.5 !w-2.5 !border-0 ${dot}`} />
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className={`h-14 w-[4px] rounded-full ${tone}`} />
+      ))}
+      <span className="absolute left-1/2 top-full mt-1 -translate-x-1/2 text-[9px] font-bold uppercase tracking-wide text-faint">{label}</span>
+      <Handle type="source" position={Position.Right} className={`!h-2.5 !w-2.5 !border-0 ${dot}`} />
+    </div>
+  )
+}
+
+export function AndNode() {
+  return <Bar lines={2} tone="bg-accent" dot="!bg-accent" label="and" />
+}
+export function OrNode() {
+  return <Bar lines={1} tone="bg-[#a78bfa]" dot="!bg-[#a78bfa]" label="or" />
+}
+
 // START — the initial step marker (GRAFCET's double-bordered initial step). Active when the recipe
 // begins; it has no preceding transition and links straight to the first step. Non-deletable.
 export function StartNode() {

@@ -23,13 +23,13 @@ import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
 import { EndNode } from './EndNode'
-import { StartNode, TransitionNode, type TransitionNodeData } from './FlowNodes'
+import { StartNode, TransitionNode, AndNode, OrNode, type TransitionNodeData } from './FlowNodes'
 import { ConditionEditor } from './ConditionEditor'
 import { StepEditor } from './StepEditor'
 import { RecipeSettings } from './RecipeSettings'
 import { NodePalette, DRAG_KEY, type PaletteKind } from './NodePalette'
 
-const nodeTypes = { start: StartNode, step: StepNode, transition: TransitionNode, end: EndNode }
+const nodeTypes = { start: StartNode, step: StepNode, transition: TransitionNode, and: AndNode, or: OrNode, end: EndNode }
 const DEFAULT_COND: Condition = { type: 'StateReached', pea_id: 0, service: '', state: 'COMPLETED' }
 
 const selectClass =
@@ -64,6 +64,8 @@ function toGraphNode(n: Node): GraphNode {
     return { id: n.id, kind: 'step', pea_id: d.pea_id, service: d.service, procedure_id: d.procedure_id, params: d.params, x: n.position.x, y: n.position.y }
   }
   if (n.type === 'transition') return { id: n.id, kind: 'transition', condition: (n.data as TransitionNodeData).condition }
+  if (n.type === 'and') return { id: n.id, kind: 'and' }
+  if (n.type === 'or') return { id: n.id, kind: 'or' }
   if (n.type === 'start') return { id: n.id, kind: 'start' }
   return { id: n.id, kind: 'end' }
 }
@@ -135,7 +137,7 @@ export function RecipeBuilder() {
         ? { x: pts.reduce((s, p) => s + p.x, 0) / pts.length + dx, y: pts.reduce((s, p) => s + p.y, 0) / pts.length }
         : fallback
     }
-    g.nodes.filter((n) => n.kind === 'transition').forEach((n) => centroid(n.id, { x: 360, y: 200 }))
+    g.nodes.filter((n) => n.kind === 'transition' || n.kind === 'and' || n.kind === 'or').forEach((n) => centroid(n.id, { x: 360, y: 200 }))
     centroid(START_ID, { x: 60, y: 120 }, -170)
     centroid(END_ID, { x: 900, y: 200 }, 170)
 
@@ -151,6 +153,7 @@ export function RecipeBuilder() {
         }
       if (n.kind === 'transition')
         return { id: n.id, type: 'transition', position: pos[n.id], data: { condition: n.condition, label: n.condition ? summarize(n.condition) : undefined } satisfies TransitionNodeData }
+      if (n.kind === 'and' || n.kind === 'or') return { id: n.id, type: n.kind, position: pos[n.id], data: {} }
       if (n.kind === 'start') return { id: n.id, type: 'start', deletable: false, position: pos[n.id], data: {} }
       return { id: n.id, type: 'end', deletable: false, position: pos[n.id], data: {} }
     })
@@ -162,18 +165,43 @@ export function RecipeBuilder() {
     setEdges(rfEdges)
   }, [recipe, peas, peaById, procedureName, setNodes, setEdges])
 
-  // GRAFCET alternation: only step→transition, transition→(step|end), and start→step are legal.
+  // GRAFCET alternation (with the AND/OR bars): which source→target links are legal.
+  const ALLOWED: Record<string, string[]> = {
+    start: ['step'],
+    step: ['transition', 'and', 'or'],
+    transition: ['step', 'and', 'or', 'end'],
+    and: ['step', 'transition'],
+    or: ['step', 'transition'],
+    end: [],
+  }
   const isValidConnection = useCallback(
     (c: Connection | Edge) => {
       const s = nodes.find((n) => n.id === c.source)?.type
       const t = nodes.find((n) => n.id === c.target)?.type
-      if (!s || !t || c.source === c.target || s === 'end' || t === 'start') return false
-      if (s === 'start') return t === 'step'
-      if (s === 'step') return t === 'transition'
-      if (s === 'transition') return t === 'step' || t === 'end'
-      return false
+      if (!s || !t || c.source === c.target) return false
+      if (!(ALLOWED[s] ?? []).includes(t)) return false
+      // A bar's two sides must be opposite kinds — its "single" side (AND: one transition · OR: one
+      // step) holds exactly one edge; its "many" side (the opposite kind) holds the branches. Reject
+      // an edge that would make the sides the same kind (step→bar→step) or add a 2nd single-side edge.
+      const sideKinds = (barId: string, side: 'in' | 'out') =>
+        edges
+          .filter((e) => (side === 'in' ? e.target : e.source) === barId)
+          .map((e) => nodes.find((n) => n.id === (side === 'in' ? e.source : e.target))?.type)
+          .filter(Boolean)
+      const barOk = (barId: string, barType: string, newKind: string, side: 'in' | 'out') => {
+        const singleKind = barType === 'and' ? 'transition' : 'step'
+        const same = sideKinds(barId, side)
+        const other = sideKinds(barId, side === 'in' ? 'out' : 'in')
+        if (same.some((k) => k !== newKind)) return false // one side is homogeneous
+        if (other.some((k) => k === newKind)) return false // the two sides are opposite kinds
+        if (newKind === singleKind && same.length >= 1) return false // the single side takes only one
+        return true
+      }
+      if ((t === 'and' || t === 'or') && !barOk(c.target!, t, s, 'in')) return false
+      if ((s === 'and' || s === 'or') && !barOk(c.source!, s, t, 'out')) return false
+      return true
     },
-    [nodes],
+    [nodes, edges],
   )
 
   const onConnect = useCallback(
@@ -220,16 +248,16 @@ export function RecipeBuilder() {
     ])
     setSaved(false)
   }
-  function addTransition(position = { x: 360, y: 180 }) {
-    const id = `tr-${Date.now()}`
-    setNodes((ns) => [...ns, { id, type: 'transition', position, data: {} satisfies TransitionNodeData }])
+  function addBlock(kind: 'transition' | 'and' | 'or', position = { x: 360, y: 180 }) {
+    const id = `${kind}-${Date.now()}`
+    setNodes((ns) => [...ns, { id, type: kind, position, data: {} }])
     setSaved(false)
   }
 
   // Palette: click drops in the middle; drag drops where released.
   function onQuickAdd(kind: PaletteKind) {
     if (kind === 'step') { dropPos.current = null; setAdding(true) }
-    else addTransition()
+    else addBlock(kind)
   }
   const onDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
@@ -242,7 +270,7 @@ export function RecipeBuilder() {
       if (!kind || !rf) return
       const position = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY })
       if (kind === 'step') { dropPos.current = position; setAdding(true) }
-      else addTransition(position)
+      else addBlock(kind, position)
     },
     [rf],
   )
@@ -349,7 +377,10 @@ export function RecipeBuilder() {
                     nodeStrokeWidth={0}
                     nodeBorderRadius={4}
                     nodeColor={(n) =>
-                      n.type === 'transition' ? '#fbbf24' : n.type === 'end' || n.type === 'start' ? '#2dd4bf' : '#7c9cff'
+                      n.type === 'transition' ? '#fbbf24'
+                        : n.type === 'or' ? '#a78bfa'
+                        : n.type === 'end' || n.type === 'start' ? '#2dd4bf'
+                        : '#7c9cff'
                     }
                     className="!overflow-hidden !rounded-lg !border !border-edge"
                   />
