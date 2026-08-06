@@ -1,8 +1,24 @@
-"""M5.1 end-to-end: the engine runs a linear recipe across TWO live VirtualPEA instances.
+"""The engine against live VirtualPEA instances — the corrected step model.
 
-Mirrors test_registry.py's single-loop pattern (VirtualPEAs started/stopped in-loop via
-asyncio.run — no TestClient/cross-loop fragility). This is the "multiple VirtualPEA instances
-as a plant" demo target from the design doc: two HC30 copies on different ports, orchestrated.
+**Rewritten at `010` unit 3, not tweaked** (`010` §5). The previous version was built
+entirely on the *continuous* procedure with `StateReached … "EXECUTE"` receptivities, and
+asserted `run.status == "completed"` **while asserting both services were still EXECUTE**.
+That is the behaviour this correction removes: a step is `initiate + await termination`
+(step model §1), so a run cannot be complete while its services are still running.
+
+Every step here uses the **self-completing** procedure (`HC30_Stirring_Duration`), which is
+what unit 3 handles; continuous steps need an explicit `COMPLETE` and arrive in unit 4.
+
+`drive` and `reset` are wired the way unit 7 will wire them in production:
+`ensure_idle` -> `start_service` -> `await_started`, and `command_service(RESET)`.
+
+⚠ **Known limitation, recorded for unit 7.** `state_of` reads `registry.snapshot()`, a
+200 ms subscription cache, while the VirtualPEA cycles a self-completing procedure in
+~100 ms (`010` §7). On a **reused** service the cache can therefore still hold the previous
+run's `COMPLETED` when the engine first observes the next step. The step model's latch (§5)
+records the observation at a known instant, but it cannot be fresher than its source. These
+tests assert what is unambiguous — that every step was really driven and really reset — and
+the semantics themselves are pinned by the fakes in `test_recipe_engine.py`.
 """
 
 from __future__ import annotations
@@ -16,256 +32,251 @@ from orchestrion.opcua.registry import PeaRegistry
 from orchestrion.recipe.engine import RecipeEngine
 from orchestrion.recipe.model import (
     END,
-    And,
+    Elapsed,
     Header,
     MasterRecipe,
     RecipeStep,
-    StateReached,
     Transition,
     ValueThreshold,
 )
+from orchestrion.state.codes import Command, ServiceState
 from virtual_pea.server import VirtualPEA
 
 LOCAL_AML = Path(__file__).parent.parent / "virtual_pea" / "HC30_Stirring_V8_local.aml"
 
+NOW = Elapsed(seconds=0.0)
+"""'Nothing further to wait for' — completion is gate 1, so the author has nothing to add.
+`Always` is the proper spelling and arrives in unit 5."""
+
 
 def _aml_on_port(tmp_path: Path, port: int, name: str) -> Path:
-    text = LOCAL_AML.read_text(encoding="utf-8").replace(
-        "opc.tcp://127.0.0.1:48050", f"opc.tcp://127.0.0.1:{port}"
-    )
     dst = tmp_path / name
-    dst.write_text(text, encoding="utf-8")
+    dst.write_text(
+        LOCAL_AML.read_text(encoding="utf-8").replace(
+            "opc.tcp://127.0.0.1:48050", f"opc.tcp://127.0.0.1:{port}"
+        ),
+        encoding="utf-8",
+    )
     return dst
 
 
-def test_engine_orchestrates_two_virtual_peas(tmp_path):
-    aml1 = _aml_on_port(tmp_path, 48120, "pea1.aml")
-    aml2 = _aml_on_port(tmp_path, 48121, "pea2.aml")
+class Plant:
+    """N VirtualPEA instances in one registry, with production-shaped callbacks."""
 
-    async def scenario():
-        s1, s2 = VirtualPEA(aml1), VirtualPEA(aml2)
-        for s in (s1, s2):
-            await s.build()
-            await s.start()
-        registry = PeaRegistry()
-        try:
-            pea1, pea2 = read_mtp(aml1), read_mtp(aml2)
-            await registry.connect(1, pea1)
-            await registry.connect(2, pea2)
+    def __init__(self, amls: dict[int, Path]) -> None:
+        self._amls = amls
+        self.servers: list[VirtualPEA] = []
+        self.registry = PeaRegistry()
+        self.services: dict[int, dict[str, object]] = {}
+        self.driven: list[str] = []
+        self.reset: list[str] = []
+        self.self_completing: int = 0
 
-            # Resolve services by name per PEA (start_service needs the parsed Service).
-            services = {
-                1: {sv.name: sv for sv in pea1.services},
-                2: {sv.name: sv for sv in pea2.services},
-            }
-            # A continuous procedure stays in EXECUTE, so an EXECUTE transition is deterministic.
-            stirring = services[1]["Stirring"]
-            cont = next(p.procedure_id for p in stirring.procedures if not p.is_self_completing)
-
-            async def drive(step):
-                conn = registry.connection(step.pea_id)
-                service = services[step.pea_id][step.service]
-                await control.start_service(conn, service, step.procedure_id, step.params)
-
-            def state_of(pea_id: int, service: str):
-                snap = registry.snapshot(pea_id)
-                return snap.states.get(service) if snap else None
-
-            events: list[str] = []
-            recipe = MasterRecipe(
-                header=Header(name="two-pea"),
-                steps=[
-                    RecipeStep(id="s1", pea_id=1, service="Stirring", procedure_id=cont),
-                    RecipeStep(id="s2", pea_id=2, service="Stirring", procedure_id=cont),
-                ],
-                transitions=[
-                    Transition(from_ids=["s1"], to_ids=["s2"],
-                               condition=StateReached(pea_id=1, service="Stirring", state="EXECUTE")),
-                    Transition(from_ids=["s2"], to_ids=[END],
-                               condition=StateReached(pea_id=2, service="Stirring", state="EXECUTE")),
-                ],
-            )
-            engine = RecipeEngine(recipe, drive_step=drive, state_of=state_of,
-                                  on_event=events.append, tick=0.1, timeout=25.0)
-            run = await engine.run()
-
-            # The engine drove BOTH PEAs to EXECUTE, in sequence, and finished.
-            assert run.status == "completed", (run.status, run.error, events)
-            assert run.done == {"s1", "s2"}
-            assert registry.snapshot(1).states["Stirring"] == "EXECUTE"
-            assert registry.snapshot(2).states["Stirring"] == "EXECUTE"
-            return run
-        finally:
-            await registry.shutdown()
-            await s1.stop()
-            await s2.stop()
-
-    run = asyncio.run(scenario())
-    assert run.status == "completed"
-
-
-def test_engine_advances_on_a_live_value_threshold(tmp_path):
-    """A transition driven by a ValueThreshold against a real, animated HC30 process value."""
-    aml = _aml_on_port(tmp_path, 48122, "pea.aml")
-
-    async def scenario():
-        server = VirtualPEA(aml)
-        await server.build()
-        await server.start()
-        registry = PeaRegistry()
-        try:
+    async def start(self) -> None:
+        for pea_id, aml in self._amls.items():
+            server = VirtualPEA(aml)
+            await server.build()
+            await server.start()
+            self.servers.append(server)
             pea = read_mtp(aml)
-            await registry.connect(1, pea)
-            services = {sv.name: sv for sv in pea.services}
-            cont = next(p.procedure_id for p in services["Stirring"].procedures if not p.is_self_completing)
-
-            # Discover a live numeric process value (don't hardcode HC30's names).
-            vname, vval = None, None
-            for _ in range(40):
-                vals = registry.snapshot(1).values
-                numeric = {n: v for n, v in vals.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
-                if numeric:
-                    vname, vval = next(iter(numeric.items()))
-                    break
-                await asyncio.sleep(0.05)
-            assert vname is not None, "no live numeric process value appeared"
-
-            async def drive(step):
-                await control.start_service(registry.connection(step.pea_id),
-                                            services[step.service], step.procedure_id, step.params)
-
-            def state_of(pea_id, service):
-                snap = registry.snapshot(pea_id)
-                return snap.states.get(service) if snap else None
-
-            def value_of(pea_id, name):
-                snap = registry.snapshot(pea_id)
-                return snap.values.get(name) if snap else None
-
-            # A threshold far below the value's scale → the condition holds once the live value
-            # is actually read (proving value_of is wired to the live snapshot).
-            recipe = MasterRecipe(
-                header=Header(name="threshold"),
-                steps=[RecipeStep(id="s1", pea_id=1, service="Stirring", procedure_id=cont)],
-                transitions=[Transition(
-                    from_ids=["s1"], to_ids=[END],
-                    condition=ValueThreshold(pea_id=1, value_name=vname, op=">", threshold=vval - 1000.0),
-                )],
+            await self.registry.connect(pea_id, pea)
+            self.services[pea_id] = {sv.name: sv for sv in pea.services}
+            stirring = pea.services[0]
+            self.self_completing = next(
+                p.procedure_id for p in stirring.procedures if p.is_self_completing
             )
-            engine = RecipeEngine(recipe, drive_step=drive, state_of=state_of, value_of=value_of,
-                                  tick=0.1, timeout=15.0)
-            run = await engine.run()
-            assert run.status == "completed", (run.status, run.error)
-            return run
-        finally:
-            await registry.shutdown()
+
+    async def stop(self) -> None:
+        await self.registry.shutdown()
+        for server in self.servers:
             await server.stop()
 
-    assert asyncio.run(scenario()).status == "completed"
+    async def drive(self, step: RecipeStep) -> None:
+        """Exactly the sequence step model §2 specifies: handshake + pre-flight, start,
+        await-started."""
+        conn = self.registry.connection(step.pea_id)
+        service = self.services[step.pea_id][step.service]
+        await control.ensure_idle(conn, service)
+        await control.start_service(conn, service, step.procedure_id, step.params)
+        await control.await_started(conn, service)
+        self.driven.append(step.id)
+
+    async def reset_step(self, step: RecipeStep) -> None:
+        conn = self.registry.connection(step.pea_id)
+        service = self.services[step.pea_id][step.service]
+        await control.command_service(conn, service, Command.RESET)
+        self.reset.append(step.id)
+
+    def state_of(self, pea_id: int, service: str) -> str | None:
+        snap = self.registry.snapshot(pea_id)
+        return snap.states.get(service) if snap else None
+
+    def value_of(self, pea_id: int, name: str) -> float | None:
+        snap = self.registry.snapshot(pea_id)
+        if snap is None:
+            return None
+        raw = snap.values.get(name)
+        return float(raw) if isinstance(raw, (int, float)) else None
+
+    def engine(self, recipe: MasterRecipe, events: list[str], **kw) -> RecipeEngine:
+        kw.setdefault("tick", 0.1)
+        kw.setdefault("timeout", 40.0)
+        return RecipeEngine(
+            recipe, drive_step=self.drive, reset_step=self.reset_step,
+            state_of=self.state_of, value_of=self.value_of,
+            on_event=events.append, **kw,
+        )
 
 
-def test_engine_or_divergence_selection_live(tmp_path):
-    """M5.6 (pulled forward): s0 selects branch Y (its state is EXECUTE, not HELD); branch X's
-    PEA is never started. Proves OR-divergence against live PEAs."""
-    amls = [_aml_on_port(tmp_path, 48126 + i, f"pea{i}.aml") for i in range(3)]
-
-    async def scenario():
-        servers = [VirtualPEA(a) for a in amls]
-        for s in servers:
-            await s.build()
-            await s.start()
-        registry = PeaRegistry()
+def _run(plant: Plant, body):
+    async def main():
+        await plant.start()
         try:
-            peas = {}
-            for i, a in enumerate(amls, start=1):
-                pea = read_mtp(a)
-                await registry.connect(i, pea)
-                peas[i] = {sv.name: sv for sv in pea.services}
-            cont = next(p.procedure_id for p in peas[1]["Stirring"].procedures if not p.is_self_completing)
-
-            async def drive(step):
-                await control.start_service(registry.connection(step.pea_id),
-                                            peas[step.pea_id][step.service], step.procedure_id, step.params)
-
-            def state_of(pea_id, service):
-                snap = registry.snapshot(pea_id)
-                return snap.states.get(service) if snap else None
-
-            reach = lambda pid, st: StateReached(pea_id=pid, service="Stirring", state=st)
-            recipe = MasterRecipe(
-                header=Header(name="selection"),
-                steps=[RecipeStep(id=sid, pea_id=pid, service="Stirring", procedure_id=cont)
-                       for sid, pid in (("s0", 1), ("sX", 2), ("sY", 3))],
-                transitions=[
-                    Transition(from_ids=["s0"], to_ids=["sX"], condition=reach(1, "HELD")),     # not taken
-                    Transition(from_ids=["s0"], to_ids=["sY"], condition=reach(1, "EXECUTE")),   # taken
-                    Transition(from_ids=["sY"], to_ids=[END], condition=reach(3, "EXECUTE")),
-                ],
-            )
-            run = await RecipeEngine(recipe, drive_step=drive, state_of=state_of,
-                                     tick=0.1, timeout=25.0).run()
-
-            assert run.status == "completed", (run.status, run.error)
-            assert run.done == {"s0", "sY"}
-            assert registry.snapshot(3).states["Stirring"] == "EXECUTE"  # branch Y ran
-            assert registry.snapshot(2).states["Stirring"] == "IDLE"     # branch X never started
-            return run
+            return await body(plant)
         finally:
-            await registry.shutdown()
-            for s in servers:
-                await s.stop()
+            await plant.stop()
 
-    assert asyncio.run(scenario()).status == "completed"
+    return asyncio.run(main())
 
 
-def test_engine_parallel_diamond_across_three_peas(tmp_path):
-    """M5.3: s0 -> split -> {sA, sB concurrent} -> join -> END across three live VirtualPEAs."""
-    amls = [_aml_on_port(tmp_path, 48123 + i, f"pea{i}.aml") for i in range(3)]
+def _step(step_id: str, pea_id: int, procedure_id: int) -> RecipeStep:
+    return RecipeStep(id=step_id, pea_id=pea_id, service="Stirring", procedure_id=procedure_id)
 
-    async def scenario():
-        servers = [VirtualPEA(a) for a in amls]
-        for s in servers:
-            await s.build()
-            await s.start()
-        registry = PeaRegistry()
-        try:
-            peas = {}
-            for i, a in enumerate(amls, start=1):
-                pea = read_mtp(a)
-                await registry.connect(i, pea)
-                peas[i] = {sv.name: sv for sv in pea.services}
-            cont = next(p.procedure_id for p in peas[1]["Stirring"].procedures if not p.is_self_completing)
 
-            async def drive(step):
-                await control.start_service(registry.connection(step.pea_id),
-                                            peas[step.pea_id][step.service], step.procedure_id, step.params)
+def test_linear_recipe_across_two_peas(tmp_path):
+    """Two PEAs, self-completing steps. The run completes **and** no service is left
+    running — the thing the old test explicitly could not assert."""
+    plant = Plant({
+        1: _aml_on_port(tmp_path, 48160, "pea1.aml"),
+        2: _aml_on_port(tmp_path, 48161, "pea2.aml"),
+    })
 
-            def state_of(pea_id, service):
-                snap = registry.snapshot(pea_id)
-                return snap.states.get(service) if snap else None
-
-            reach = lambda pid: StateReached(pea_id=pid, service="Stirring", state="EXECUTE")
-            recipe = MasterRecipe(
-                header=Header(name="diamond"),
-                steps=[RecipeStep(id=sid, pea_id=pid, service="Stirring", procedure_id=cont)
-                       for sid, pid in (("s0", 1), ("sA", 2), ("sB", 3))],
-                transitions=[
-                    Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=reach(1)),
-                    Transition(from_ids=["sA", "sB"], to_ids=[END],
-                               condition=And(conditions=[reach(2), reach(3)])),
-                ],
+    async def body(p: Plant):
+        proc = p.self_completing
+        recipe = MasterRecipe(
+            header=Header(name="two-pea"),
+            steps=[_step("s1", 1, proc), _step("s2", 2, proc)],
+            transitions=[
+                Transition(from_ids=["s1"], to_ids=["s2"], condition=NOW),
+                Transition(from_ids=["s2"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+        run = await p.engine(recipe, events).run()
+        assert run.status == "completed", (run.status, run.error, events)
+        assert run.done == {"s1", "s2"}
+        assert p.driven == ["s1", "s2"], p.driven
+        assert p.reset == ["s1", "s2"], p.reset          # §5 — RESET is mandatory
+        # No service left running: both were reset, so both are back at IDLE.
+        for pea_id in (1, 2):
+            conn = p.registry.connection(pea_id)
+            service = p.services[pea_id]["Stirring"]
+            await control.await_state(
+                conn, service, lambda s: s is ServiceState.IDLE, "IDLE", timeout=10.0
             )
-            run = await RecipeEngine(recipe, drive_step=drive, state_of=state_of,
-                                     tick=0.1, timeout=25.0).run()
+        return run
 
-            assert run.status == "completed", (run.status, run.error)
-            assert run.done == {"s0", "sA", "sB"}
-            # all three PEAs were actually driven to EXECUTE (both branches + the source).
-            assert all(registry.snapshot(i).states["Stirring"] == "EXECUTE" for i in (1, 2, 3))
-            return run
-        finally:
-            await registry.shutdown()
-            for s in servers:
-                await s.stop()
+    _run(plant, body)
 
-    assert asyncio.run(scenario()).status == "completed"
+
+def test_two_consecutive_steps_on_one_pea(tmp_path):
+    """⭐ **The defect, dead.** Two steps in a row on the SAME service using the
+    self-completing procedure — `010` §2's exact case.
+
+    Before this correction: s1 finished into COMPLETED, s2's `Start` was silently dropped
+    (not enabled in COMPLETED), the next transition asked "COMPLETED?", got yes, and the
+    recipe reported success having run once.
+
+    Now s2 cannot be dropped: pre-flight RESETs the finished service first, and unit 2's
+    `CommandEn` guard would raise rather than let a write vanish. Both steps really run.
+    """
+    plant = Plant({1: _aml_on_port(tmp_path, 48162, "pea1.aml")})
+
+    async def body(p: Plant):
+        proc = p.self_completing
+        recipe = MasterRecipe(
+            header=Header(name="same-pea-twice"),
+            steps=[_step("s1", 1, proc), _step("s2", 1, proc)],   # same PEA, same service
+            transitions=[
+                Transition(from_ids=["s1"], to_ids=["s2"], condition=NOW),
+                Transition(from_ids=["s2"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+        run = await p.engine(recipe, events).run()
+        assert run.status == "completed", (run.status, run.error, events)
+        assert run.done == {"s1", "s2"}
+        # Both steps were genuinely started — `drive` only appends after `await_started`
+        # returned, and `start_service` would have raised had the command been refused.
+        assert p.driven == ["s1", "s2"], p.driven
+        assert p.reset == ["s1", "s2"], p.reset
+        return run
+
+    _run(plant, body)
+
+
+def test_parallel_branches_across_three_peas(tmp_path):
+    """M5.3's diamond, under the two gates: the join's hand-written
+    `And[COMPLETED(sA), COMPLETED(sB)]` is gone — both branches terminating IS gate 1."""
+    plant = Plant({
+        1: _aml_on_port(tmp_path, 48163, "pea1.aml"),
+        2: _aml_on_port(tmp_path, 48164, "pea2.aml"),
+        3: _aml_on_port(tmp_path, 48165, "pea3.aml"),
+    })
+
+    async def body(p: Plant):
+        proc = p.self_completing
+        recipe = MasterRecipe(
+            header=Header(name="diamond"),
+            steps=[_step("s0", 1, proc), _step("sA", 2, proc), _step("sB", 3, proc)],
+            transitions=[
+                Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=NOW),
+                Transition(from_ids=["sA", "sB"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+        run = await p.engine(recipe, events).run()
+        assert run.status == "completed", (run.status, run.error, events)
+        assert run.done == {"s0", "sA", "sB"}
+        assert p.driven[0] == "s0"
+        assert set(p.driven) == {"s0", "sA", "sB"}
+        assert set(p.reset) == {"s0", "sA", "sB"}
+        return run
+
+    _run(plant, body)
+
+
+def test_value_threshold_gates_the_advance(tmp_path):
+    """M5.2's live coverage, kept: a `ValueThreshold` on a real animated HC30 process
+    value is gate 2. The step terminates first (gate 1), then this decides when to move."""
+    plant = Plant({
+        1: _aml_on_port(tmp_path, 48166, "pea1.aml"),
+        2: _aml_on_port(tmp_path, 48167, "pea2.aml"),
+    })
+
+    async def body(p: Plant):
+        proc = p.self_completing
+        snap = p.registry.snapshot(1)
+        name = next(
+            n for n, v in snap.values.items() if isinstance(v, (int, float))
+        )
+        recipe = MasterRecipe(
+            header=Header(name="threshold"),
+            steps=[_step("s1", 1, proc), _step("s2", 2, proc)],
+            transitions=[
+                Transition(
+                    from_ids=["s1"], to_ids=["s2"],
+                    condition=ValueThreshold(
+                        pea_id=1, value_name=name, op=">=", threshold=-1e9
+                    ),
+                ),
+                Transition(from_ids=["s2"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+        run = await p.engine(recipe, events).run()
+        assert run.status == "completed", (run.status, run.error, events)
+        assert p.driven == ["s1", "s2"]
+        return run
+
+    _run(plant, body)
