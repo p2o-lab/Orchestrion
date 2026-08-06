@@ -305,6 +305,12 @@ state**.
 This permanently closes the stale-state bug class: completion is observed **once**, at a known instant,
 never re-derived from a cache that has since moved on.
 
+**`[OURS]` When `RESET` is sent: on advance, not on termination.** Decided 2026-08-06 — see §12 item
+**0a** for the reasoning. The step therefore sits in its final state for as long as it is *terminated
+but not yet advanced* (§8), which is what makes *"S1 finished, waiting for Temp > 80"* observable on
+the PEA and not just in our own run state. The latch above is what makes this safe to do late: the
+final state is already recorded, so nothing depends on the PEA still holding it.
+
 ---
 
 ## 6. The complete 16-state classification
@@ -457,33 +463,46 @@ This preserves the decoupling rather than reaching around it.
 
 ## 12. Open items
 
-> **⚠ Items 0a–0c were added 2026-08-05 and are NOT "later" — they must be settled before the engine
-> is built, because unit 3 has to pick a behaviour for each and there is currently no answer to pick.**
+> **✅ Items 0a–0c were opened 2026-08-05 and DECIDED 2026-08-06. Unit 3 is unblocked.**
 
-**0a. `[DERIVED]` When is `RESET` sent — at termination, or when the transition fires?**
-§5 requires only that `RESETTING` occurs *between executions*; both satisfy it. The two differ
-visibly. Take a self-completing step whose receptivity is `Temp > 80`, ten minutes away:
+**0a. ✅ DECIDED — `RESET` is sent when the transition fires, not at termination.**
 
-| choice | the operator sees | risk |
-|---|---|---|
-| RESET at termination | the service returns to `IDLE` immediately, then idles | a finished-but-not-advanced step is indistinguishable from one never run |
-| RESET when the transition fires | the service sits in `COMPLETED` for ten minutes | the equipment is held past its useful life; a second recipe's pre-flight sees a final state |
+**`[OURS]` on the timing.** ISA-88 mandates *that* it happens — `COMPLETE` *"waits in the final state
+for a RESET command"*, RESETTING *"always becomes active between executions"* — but the whole document
+was searched and it **never says who issues `RESET` or when.**
 
-§8's *terminated* state (*"S1 finished, waiting for Temp > 80"*) argues for the second — the step is
-still ours until we advance. **Undecided. Unit 3 must choose and record why.**
+Take a self-completing step whose receptivity is `Temp > 80`, ten minutes away:
 
-**0b. `[DERIVED]` OR-divergence out of a *continuous* step is undefined.**
-For a continuous step each branch's receptivity **is** the completion criterion (§2), and the branches
-are walked in priority order (chart §8). So: which branch's receptivity triggers the single
-`COMPLETE`, and what happens to the others while we await `COMPLETED`? Nothing in either document
-says. A selection out of a *self-completing* step has no such problem — completion is gate #1 and the
-branches only choose a path.
+| choice | the operator sees |
+|---|---|
+| RESET at termination | the service returns to `IDLE` at once — **indistinguishable from a step that never ran** |
+| **RESET when the transition fires** ✅ | the service sits in `COMPLETED` — *"S1 finished, waiting for Temp > 80"* |
 
-**0c. `[DERIVED]` AND-convergence with mixed procedure kinds is undefined.**
-A join `{S2, S3} → S4` carries **one** receptivity. If S2 is continuous and S3 self-completing, that
-one expression is simultaneously S2's completion criterion and a plain gate for S3. Chart §5 says the
-join's receptivity *"becomes `=1`"* — which for a continuous from-step would complete it instantly.
-**Either forbid mixed-kind joins, or define per-from-step completion.**
+Two reasons:
+
+1. **§8 already defines a *terminated* step state** whose entire purpose is to show *"finished, waiting
+   for the receptivity"*. `COMPLETED` on the PEA says exactly that; `IDLE` throws it away.
+2. **`[DERIVED]` Table B.2 puts the ownership boundary at RESETTING**, not at termination: RESETTING
+   *"always becomes active between executions of the Process-oriented task, **at which time the
+   procedural element may no longer be allocated to or viewable from a recipe**."* Resetting early
+   would push the service out of the recipe's ownership **while the recipe still has a pending decision
+   about it**. Resetting on advance is what *"between executions"* actually means.
+
+*(The counter-argument — a finished step holds equipment — is real, but it is the **equipment
+allocation** gap at item 3 below, and it applies to both choices.)*
+
+**0b + 0c. ✅ DECIDED — see [`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md) §5.**
+
+- **OR-divergence out of a continuous step** — the first receptivity to fire, in priority order,
+  **is latched**: `COMPLETE` is sent once, and the recorded branch is taken regardless of what else
+  goes true meanwhile. Re-evaluating can **deadlock** (the winning condition falls false during
+  `COMPLETING` and no branch is true).
+- **AND-convergence over mixed kinds** — the join's receptivity **ends every continuous from-step**:
+  condition true **and** all self-completing from-steps terminated → `COMPLETE` to each continuous one
+  → await all final → initiate. **Satisfies item 1341 exactly** at the instant of initiation.
+
+Both are `[DERIVED]`, not `[CITED]` — IEC 60848 §6.2.3 is outside the preview and nothing else settles
+them. Chart §5 carries the full reasoning and what was rejected.
 
 ---
 

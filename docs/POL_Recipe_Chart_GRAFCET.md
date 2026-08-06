@@ -69,6 +69,46 @@ outside the preview.
 
 ---
 
+## 0a. GRAFCET is a borrowed notation. **ISA-88 is the conformance target.**
+
+**Added 2026-08-06**, and it changes how every other section should be read.
+
+This document — and `POL_Recipe_Engine_Design.md` §2.5 before it — has been written as though the
+recipe chart *is* GRAFCET, on the strength of "IEC 61512-1 normatively references IEC 60848". Checked
+properly, that reference is far thinner than the framing implied:
+
+**`[CITED]`** IEC 60848 *is* listed in ISA-88 clause 2 **Normative references** — but the only statement
+about what it is *for* is an informative note:
+
+> *"NOTE 2 — Structures defined in IEC 60848 **may be useful** in the definition of procedural control
+> and, in particular, in the definition of **a phase**."*
+> (normative 2000 edition, DE: *"können … hilfreich sein"*)
+
+**`[CITED]`** and the normative **DIN EN 61512-1:2000-01 §5.1.2.4** is more specific still:
+
+> *"Die Schritte und Übergänge, wie sie in der IEC 60848 beschrieben sind, dokumentieren eine Methode,
+> um **Unterteilungen einer Funktion** zu definieren."*
+> — steps and transitions per IEC 60848 document a method for defining **subdivisions of a phase**.
+> *(This sentence exists in the 2000 normative text; the 2023 CD dropped it, keeping only NOTE 2.)*
+
+**A phase is a PEA service.** Its internals run on the PEA and are the vendor's business — we never
+author them. **So ISA-88 points at GRAFCET for a level this project does not model at all.** Our chart
+sits *above* the phase, at procedure/operation level, sequencing services across PEAs.
+
+**What follows from this:**
+
+| | |
+|---|---|
+| **binding** | ISA-88 / IEC 61512-1 — the procedural control model, items 1337-1341, the state model |
+| **borrowed** | IEC 60848 — its vocabulary (step, transition, receptivity, directed link) and its drawing conventions, because they are precise, well-known and fit |
+| **not binding** | GRAFCET *conformance*. Where GRAFCET is looser than ISA-88 (several initial steps, cycles), **ISA-88 wins.** Where GRAFCET is silent, we decide. |
+
+This is why §2 can reject cycles and require exactly one initial step without apology, and why §5's
+continuous-step branch rules are ours to define. **We are not claiming to emit a conformant grafcet
+chart, and no part of this document should be defended as though we were.**
+
+---
+
 ## 1. Two node kinds. Nothing else.
 
 **`[CITED]`** The element list is closed at **five** items, enumerated by **§4.3.2 + §4.3.3**:
@@ -149,18 +189,39 @@ those that are never a transition target"*), so it serializes with **zero backen
 > **Consequence:** the initial step **cannot be derived from topology in the general case**. Either
 >
 > - **(a)** the recipe declares its initial step explicitly (a field on `MasterRecipe`, or a flag on
->   `RecipeStep`) — correct, matches what §4.5.2 presumably describes, and costs a backend change; or
-> - **(b)** we forbid cycles, and topology-inference stays valid **by construction** — cheap, honest,
->   but it rejects charts the standard plainly permits, and must be *stated* as our restriction rather
->   than presented as GRAFCET.
->
-> **This is the same decision as §10, arrived at from the other side.** It is no longer a "nice to
-> settle before unit 12" — it is a prerequisite for the chart model, because the initial step is how a
-> run starts. **Settle it before unit 3**, since (a) changes `MasterRecipe`.
+>   `RecipeStep`) — costs a backend change; or
+> - **(b)** we forbid cycles, and topology-inference stays valid **by construction**.
 
-**`[OURS]` Exactly one initial step is required.** §3.1.7's *situation* is a set of active steps
-(plural), so several are presumably legal — but the settling clause is unread. Either way, several is a
-hard error: **a narrowing chosen for safety**, not something the standard was read to permit or forbid.
+### ✅ DECIDED 2026-08-06 — **(b): cycles are rejected; the initial step stays inferred**
+
+And the justification is **stronger than "our restriction"**, which is how the option was framed above.
+Verified against ISA-88 the same day:
+
+- **`[CITED]` item 1337-1339** — *"A procedure is a specification of a sequence of steps… with **a
+  defined beginning and end**… A procedure consists of a set of steps **in series, in parallel, or a
+  combination of both**."* Series and parallel. **That is the whole list.**
+- **`[CITED]`** the document was searched end to end for loop / repeat / iterate. The **only**
+  "looping back" is **item 3112**, the Process Cell Management *recipe-editing* capability already
+  discredited in §10. Item 2384's *"repeated execution of processing steps"* describes what happens
+  **inside** an acting state, not recipe structure.
+
+So a loop is not something we are giving up from ISA-88 — **ISA-88's procedure model never had one.**
+
+**⚠ Stated precisely, because the difference matters:** ISA-88 does not *forbid* loops, it simply never
+describes one. The honest claim is **"rejecting cycles is consistent with ISA-88, and allowing them is
+unsupported by it"** — not "ISA-88 prohibits loops."
+
+### The single initial step upgrades from `[OURS]` to `[CITED]`
+
+**`[CITED]` item 1337** — *"a defined beginning and end."* **Singular.** So *"exactly one initial
+step"* is no longer the safety-narrowing this section called it two paragraphs above; it is what the
+procedure model says. Zero initial steps and several initial steps are both hard errors, on the
+standard's authority.
+
+**`[CITED]` Exactly one initial step is required** — ISA-88 item 1337's *"a defined beginning"*, above.
+*(Tag upgraded from `[OURS]` on 2026-08-06.)* GRAFCET is looser — §3.1.7's *situation* is a set of
+active steps (plural) and §4.2 says *"several steps may be active simultaneously"* — but **ISA-88 is
+our conformance target and GRAFCET is a borrowed notation** (§0a), so the tighter rule governs.
 
 Two silent engine behaviours become validation errors — **a warning while building, a blocker on
 save/run**, so a half-built chart can sit on the canvas:
@@ -216,10 +277,17 @@ Plus one line in `conditions.is_met`. **Default for every new transition leaving
 step** — with completion structural (step model §3), such a transition has nothing to add, yet
 `model.py:140` makes `condition` required.
 
-**`[OURS]` A transition leaving a *continuous* step must NOT default to `Always`** — that would start
-the service and immediately complete it. For a continuous step the receptivity **is** the completion
-criterion (step model §2), so a real one is required: a duration, a threshold, an operator
-confirmation. Two things this needs:
+**`[OURS]` A transition with a *continuous* step anywhere in its `from_ids` must NOT carry `Always`** —
+that would start the service and immediately complete it. For a continuous step the receptivity **is**
+the completion criterion (step model §2), so a real one is required: a duration, a threshold, an
+operator confirmation.
+
+> **⚠ Scope widened 2026-08-06.** This rule used to say *"a transition **leaving** a continuous step"*,
+> which reads as a step's single outgoing transition. §5(b) now lets a continuous step feed an
+> **AND-join**, and that join is exactly where `=1` was going to be the default — so the rule has to be
+> stated over the **transition's whole `from_ids`**, not over one step's exit. Same rule, wider net.
+
+Two things this needs:
 
 - **The builder must know which kind a procedure is.** It already can — `is_self_completing` is on the
   procedure schema (`api/schemas.py:81`, populated at `:140`). No new endpoint.
@@ -238,8 +306,10 @@ several steps**."* Corroborated by §4.2: a transition is *"characterized by: �
 • its **succeeding steps**, • its associated transition-condition"* — plural on both sides.
 
 **The bars are how you *draw* an element with more than one link on a side — never a node.**
-The "never a node" conclusion is **`[CITED]`**: it follows from §4.3.2 and §3.1's closed element list,
-both read in full.
+The "never a node" conclusion is **`[CITED]`**: it follows from §4.3.2 and §4.3.3's closed enumeration
+(*"the structure comprises the following basic items"* / *"the following elements are used for the
+interpretation"*), both read in full. *(This line said "§3.1's closed element list" until 2026-08-05;
+§3.1 is a glossary — see §1.)*
 
 **`[TITLE-ONLY]`** every §6.2.x row below — clause *names*, not text. **The structure column is derived
 from §4.3.2**; the clause numbers are attribution by title.
@@ -281,20 +351,78 @@ divergence; several `from_ids` = a join."* **All four forms need no backend chan
   true at once and the "choice" is decided by list order. **That is not a selection.** With the two
   gates, the shared part is gate #1 and each branch carries a **real** distinguishing receptivity.
 
-> **⚠ Added 2026-08-05 — both branch forms are undefined when a *continuous* step is involved.**
-> Neither this document nor the step model says what happens, and unit 8 (OR arbitration) and unit 3
-> (the two gates) both need an answer. See step model §12 items **0b** and **0c**:
->
-> - **OR-divergence out of a continuous step** — each branch receptivity *is* the completion criterion
->   (step model §2), so which one triggers the single `COMPLETE`, and what becomes of the others while
->   we await `COMPLETED`?
-> - **AND-convergence over mixed kinds** — the join carries **one** receptivity, which would have to be
->   the completion criterion for *every* continuous from-step at once. The "`=1`" answer above is
->   correct **only when every from-step is self-completing**; for a continuous one it would complete it
->   instantly.
->
-> The simplest resolution — **forbid a continuous step from having more than one outgoing transition,
-> and forbid mixed-kind joins** — is `[OURS]` and costs two validation rules. Decide before unit 3.
+### Branches involving a *continuous* step — ✅ DECIDED 2026-08-06
+
+Both forms were undefined until now. Neither is settled by a clause — IEC 60848 §6.2.3 is outside the
+preview — so both are **`[DERIVED]`**, reasoned from the two gates and checked against ISA-88 item 1341.
+
+**`[CITED]`** the standards basis for selection at all is **item 1339-1341**: *"Transition conditions
+may be inserted between any steps to **modify which steps will execute and in what order**, usually
+based on equipment, process, and operator responses."*
+*(⚠ `009` justified selection with "Figure 25 — selection of procedural elements". **That is a
+misreading**: Figure 25 is *"Simultaneous definition/selection of procedural elements **and equipment
+entities**"*, a design-workflow figure about choosing procedure and equipment together. It says nothing
+about branches. Corrected 2026-08-06 — cite item 1340, never Figure 25.)*
+
+#### (a) OR-divergence out of a continuous step — **the winning branch is latched**
+
+```
+        S1  (continuous)
+         │
+      ┌──┴──┐        T_a: Temp > 80     → S2
+      T_a   T_b      T_b: Elapsed 10min → S3   (the timeout branch)
+      │     │
+      S2    S3
+```
+
+For a continuous step the receptivities on its outgoing transitions are **jointly** its completion
+criterion. **The first to fire, in priority order, wins and is recorded.** We then send `COMPLETE`
+**once**, await termination, and activate the recorded branch — **ignoring any other branch that goes
+true in the meantime, and not re-evaluating afterwards.**
+
+Two reasons, both load-bearing:
+1. For a continuous step, *deciding to end it* and *choosing where to go* are **one decision**. The
+   condition that fired is the reason we sent `COMPLETE`; taking a different branch would mean the
+   reason we stopped and the path we took disagree.
+2. **Re-evaluating can deadlock.** If `Temp > 80` fires, we send `COMPLETE`, and the temperature falls
+   to 79 while the service is `COMPLETING` — a re-evaluating engine finds **no true branch** and the
+   run hangs with the service already terminated. Latching cannot get stuck.
+
+**`[DERIVED]` corroboration, not citation:** GRAFCET treats clearing as *event*-driven, not level-
+sampled — §3.1.9 defines transient evolution as *"the clearing of several successive transitions **on
+the occurrence of a single input event**"*, and §3.1.10's note as *"the possible evolution is realised
+by clearing the transition."* Consistent with latching. **§4.5.3 is unread**, so this does not upgrade.
+
+> **Rejected: forbidding a continuous step more than one exit.** It would outlaw
+> *"stir until temperature reached **or** time out → different paths"* — which is precisely where an
+> exception branch belongs.
+
+#### (b) AND-convergence over mixed kinds — **the join's receptivity ends every continuous branch**
+
+```
+   S2 (continuous)   S3 (self-completing)
+        └──────┬──────┘
+               T          ← ONE receptivity, two jobs
+               │
+              S4
+```
+
+**The rule:** when the join's receptivity is true **and** every self-completing from-step has already
+terminated → send `COMPLETE` to **each** continuous from-step → wait until **all** from-steps hold a
+final state → *then* initiate the to-steps.
+
+**This satisfies item 1341 exactly.** At the instant the next step is initiated, *"the immediate
+predecessor(s)… **have completed**"* **and** *"any intervening transition conditions are true"*. It is
+also not a new mechanism — it is §3's single-continuous-step shape applied over a set.
+
+> **Rejected: forbidding mixed-kind joins.** It would outlaw an ordinary recipe — *"run the agitator
+> while you dose the acid; when dosing is done, stop stirring and move on."* Agitator continuous,
+> dosing timed. Banning that to save one branch of logic is the wrong trade.
+
+**⚠ This widens the `Always` rule in §4.** That rule is currently stated over *a step's outgoing*
+transition. It must be restated over the transition: **any transition with a continuous step anywhere
+in its `from_ids` may not carry `Always`** — otherwise a join with `=1` starts a continuous branch and
+completes it in the same instant.
 
 ---
 
@@ -373,9 +501,25 @@ transition coordinates later would be purely additive.
 
 ---
 
-## 10. ⚠ UNDECIDED — backward links / loops
+## 10. ✅ DECIDED — backward links / loops are **rejected**
 
-**This must be settled before the validation rule set is implemented.**
+> **Settled 2026-08-06 — cycles are a validation error.** The reasoning, the ISA-88 evidence
+> (item 1337's *"a defined beginning and end"*, item 1339's series-or-parallel, and the fact that the
+> document's only "looping back" is item 3112's recipe-*editing* capability) and the precise limit of
+> that claim are in **§2**. GRAFCET permits cycles — §6.2.2 *Cycle of a single sequence* — but per
+> **§0a** GRAFCET is a borrowed notation, not our conformance target.
+>
+> **Consequences, all now decided rather than open:**
+> - the initial step **stays inferred from topology** (`engine.py:92`), valid by construction once
+>   cycles are gone — **no `MasterRecipe` change**;
+> - **exactly one** initial step, enforced in the builder **and** server-side (§2);
+> - the engine's re-activation of a step already in `run.done` **stays unverified, and that is fine** —
+>   it is now unreachable.
+>
+> The rest of this section is kept for the reasoning and the citation correction.
+
+*(Original framing, kept for the reasoning: "this must be settled before the validation rule set is
+implemented." It was — see the box above.)*
 
 GRAFCET **§6.2.2** *Cycle of a single sequence*, **§6.2.4** *Step skip* and **§6.2.5** *Backward
 sequence skip* (all three `[TITLE-ONLY]`) contemplate them — and **Figure 2 is itself a cycle** (§2).
@@ -413,11 +557,15 @@ behaviour **and** adding an explicit initial-step declaration to `MasterRecipe` 
 
 ## 11. Open items
 
-> ### ⛔ BLOCKING — added 2026-08-05. Settle before **unit 3**, not before unit 12.
-> **(a)** Cycles, and how the initial step is determined (§2, §10) — **it may change `MasterRecipe`**.
-> **(b)** OR-divergence out of a continuous step, and mixed-kind AND-convergence (§5; step model §12
-> items 0b/0c). **(c)** Server-side enforcement of the initial-step cardinality (§2) — which has **no
-> owning unit**, because units 9–12 are frontend and the builder is not a safety boundary.
+> ### ✅ RESOLVED 2026-08-06 — the three blockers are decided; **unit 3 is unblocked**
+> **(a)** Cycles rejected, initial step stays inferred, exactly one — §2 and §10.
+> **`MasterRecipe` does not change.**
+> **(b)** OR-divergence out of a continuous step **latches the winning branch**; a mixed-kind AND-join's
+> receptivity **ends every continuous from-step** — §5. Plus the `Always` rule widened to `from_ids`
+> (§4).
+> **(c)** Initial-step cardinality is enforced **server-side as well as in the builder** — it lands in
+> **unit 7**, beside the other structural checks in `_validate_against_project`, since units 9–12 are
+> frontend and the builder is not a safety boundary.
 
 Everything below blocks nothing.
 
