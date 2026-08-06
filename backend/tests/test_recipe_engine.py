@@ -19,6 +19,7 @@ import asyncio
 from orchestrion.recipe.engine import RecipeEngine, StepState
 from orchestrion.recipe.model import (
     END,
+    Always,
     Elapsed,
     Header,
     MasterRecipe,
@@ -79,11 +80,10 @@ def _step(step_id: str, pea_id: int) -> RecipeStep:
 def _linear(receptivity=None) -> MasterRecipe:
     """s1 (PEA 1) -> s2 (PEA 2) -> END.
 
-    The receptivity defaults to `Elapsed(0)` — "nothing more to wait for". Under the two
-    gates, completion is gate 1 and the author has nothing left to say. (`Always` is the
-    proper spelling of this and arrives in unit 5.)
+    The receptivity defaults to `Always` — "nothing more to wait for". Under the two gates,
+    completion is gate 1 and the author has nothing left to say.
     """
-    guard = receptivity or Elapsed(seconds=0.0)
+    guard = receptivity or Always()
     return MasterRecipe(
         header=Header(name="linear"),
         steps=[_step("s1", 1), _step("s2", 2)],
@@ -284,7 +284,7 @@ def test_held_does_not_fail_the_run_it_waits() -> None:
 
 def _diamond() -> MasterRecipe:
     """s0 -> split -> {sA, sB concurrent} -> join -> END, over PEAs 1/2/3."""
-    guard = Elapsed(seconds=0.0)
+    guard = Always()
     return MasterRecipe(
         header=Header(name="diamond"),
         steps=[_step("s0", 1), _step("sA", 2), _step("sB", 3)],
@@ -337,8 +337,8 @@ def test_or_divergence_selects_one_branch() -> None:
         transitions=[
             Transition(from_ids=["s0"], to_ids=["sX"], condition=hot),
             Transition(from_ids=["s0"], to_ids=["sY"], condition=cold),
-            Transition(from_ids=["sX"], to_ids=[END], condition=Elapsed(seconds=0.0)),
-            Transition(from_ids=["sY"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["sX"], to_ids=[END], condition=Always()),
+            Transition(from_ids=["sY"], to_ids=[END], condition=Always()),
         ],
     )
     run = asyncio.run(
@@ -370,6 +370,71 @@ def test_times_out_if_stuck() -> None:
     assert run.status == "failed" and run.error == "timed out"
 
 
+# ── unit 5: `Always`, and the initial-step guard ────────────────────────────────────
+
+def test_always_is_true_and_needs_no_context() -> None:
+    """`Always` is the honest spelling of "completion is the only gate" (step model §3)."""
+    from orchestrion.recipe.conditions import EvalContext, is_met
+
+    ctx = EvalContext(lambda p, s: None, lambda p, n: None, 0.0)
+    assert is_met(Always(), ctx) is True
+
+
+def test_always_round_trips_through_the_discriminated_union() -> None:
+    """Widening the union is additive: an existing recipe names its own type, so nothing
+    stored can change meaning."""
+    recipe = _linear()
+    again = MasterRecipe.model_validate(recipe.model_dump())
+    assert again.transitions[0].condition == Always()
+    assert recipe.model_dump()["transitions"][0]["condition"] == {"type": "Always"}
+
+
+def test_zero_initial_steps_fails_instead_of_completing_instantly() -> None:
+    """chart §2 — a cycle leaves no step untargeted. The old loop then never ran and
+    reported `completed` **having done nothing**; [61512-1] item 1337 requires a defined
+    beginning, so this is now a failure."""
+    plant = FakePlant(on_start="COMPLETED")
+    looped = MasterRecipe(
+        header=Header(name="cycle"),
+        steps=[_step("s1", 1), _step("s2", 2)],
+        transitions=[                       # s1 -> s2 -> s1: every step is a target
+            Transition(from_ids=["s1"], to_ids=["s2"], condition=Always()),
+            Transition(from_ids=["s2"], to_ids=["s1"], condition=Always()),
+        ],
+    )
+    run = asyncio.run(_engine(looped, plant).run())
+    assert run.status == "failed"
+    assert "exactly one initial step" in run.error
+    assert "found none" in run.error
+    assert plant.driven == [], "a malformed recipe must not touch any equipment"
+
+
+def test_several_initial_steps_fails_instead_of_starting_them_all() -> None:
+    """The other silent failure: the engine used to activate **every** untargeted step —
+    starting them all at once on live equipment."""
+    plant = FakePlant(on_start="COMPLETED")
+    forked = MasterRecipe(
+        header=Header(name="two-beginnings"),
+        steps=[_step("s1", 1), _step("s2", 2), _step("s3", 3)],
+        transitions=[                       # nothing targets s1 or s2
+            Transition(from_ids=["s1"], to_ids=["s3"], condition=Always()),
+            Transition(from_ids=["s3"], to_ids=[END], condition=Always()),
+        ],
+    )
+    run = asyncio.run(_engine(forked, plant).run())
+    assert run.status == "failed"
+    assert "found 2: ['s1', 's2']" in run.error, run.error
+    assert plant.driven == []
+
+
+def test_an_empty_recipe_fails_rather_than_completing() -> None:
+    """No steps means no defined beginning either — and "completed" would be a lie."""
+    plant = FakePlant()
+    empty = MasterRecipe(header=Header(name="empty"), steps=[], transitions=[])
+    run = asyncio.run(_engine(empty, plant).run())
+    assert run.status == "failed" and "found none" in run.error
+
+
 # ── unit 4: continuous procedures ───────────────────────────────────────────────────
 
 def _hot(pea_id: int = 1) -> ValueThreshold:
@@ -397,7 +462,7 @@ def test_continuous_step_is_completed_by_its_receptivity_then_advances() -> None
         steps=[_step("s1", 1), _step("s2", 2)],
         transitions=[
             Transition(from_ids=["s1"], to_ids=["s2"], condition=_hot()),
-            Transition(from_ids=["s2"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["s2"], to_ids=[END], condition=Always()),
         ],
     )
 
@@ -475,8 +540,8 @@ def test_or_divergence_out_of_a_continuous_step_takes_one_branch() -> None:
         transitions=[
             Transition(from_ids=["s0"], to_ids=["sX"], condition=_hot()),
             Transition(from_ids=["s0"], to_ids=["sY"], condition=Elapsed(seconds=10.0)),
-            Transition(from_ids=["sX"], to_ids=[END], condition=Elapsed(seconds=0.0)),
-            Transition(from_ids=["sY"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["sX"], to_ids=[END], condition=Always()),
+            Transition(from_ids=["sY"], to_ids=[END], condition=Always()),
         ],
     )
     run = asyncio.run(
@@ -498,9 +563,9 @@ def test_mixed_kind_join_completes_only_the_continuous_branch() -> None:
         header=Header(name="mixed-join"),
         steps=[_step("s0", 1), _step("sA", 2), _step("sB", 3), _step("s4", 4)],
         transitions=[
-            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=Always()),
             Transition(from_ids=["sA", "sB"], to_ids=["s4"], condition=_hot()),
-            Transition(from_ids=["s4"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["s4"], to_ids=[END], condition=Always()),
         ],
     )
 

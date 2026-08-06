@@ -13,7 +13,15 @@ import operator
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from orchestrion.recipe.model import And, Condition, Elapsed, Or, StateReached, ValueThreshold
+from orchestrion.recipe.model import (
+    Always,
+    And,
+    Condition,
+    Elapsed,
+    Or,
+    StateReached,
+    ValueThreshold,
+)
 
 # Live lookups the engine supplies from `registry.snapshot(pea_id)`.
 StateOf = Callable[[int, str], "str | None"]  # (pea_id, service)    -> Table-14 state name
@@ -36,6 +44,8 @@ class EvalContext:
 
 def is_met(condition: Condition, ctx: EvalContext) -> bool:
     """Whether `condition` currently holds, given the live context."""
+    if isinstance(condition, Always):
+        return True  # gate 1 (the step terminated) is the only gate — step model §3
     if isinstance(condition, StateReached):
         return ctx.state_of(condition.pea_id, condition.service) == condition.state
     if isinstance(condition, ValueThreshold):

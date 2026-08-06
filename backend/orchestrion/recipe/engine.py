@@ -179,13 +179,32 @@ class RecipeEngine:
         run = RecipeRun()
         self._emit(f"recipe {self._recipe.header.name!r} started")
 
-        # Start steps = those that are never a transition target. Valid because cycles are
-        # rejected (chart §2/§10) — with a cycle this yields zero start steps.
-        # TODO(unit 5): guard zero / several start steps here as well as in the builder.
+        # The initial step is inferred from topology — the one step no transition targets.
+        # That inference is only valid because cycles are rejected (chart §2/§10); in a cyclic
+        # chart every step is a target and this yields none.
         targets = {d for t in self._recipe.transitions for d in t.to_ids}
-        for step in self._recipe.steps:
-            if step.id not in targets:
-                await self._activate(step.id, run)
+        initial = [s.id for s in self._recipe.steps if s.id not in targets]
+
+        # [IEC 61512-1] item 1337 — a procedure is "a specification of a sequence of steps…
+        # with **a defined beginning and end**". Singular. Both failures below were silent:
+        #   * none  -> nothing activates, the loop never runs, and the run reported
+        #             `completed` having done absolutely nothing;
+        #   * several -> every one of them is started at once, on live equipment.
+        if len(initial) != 1:
+            run.status = "failed"
+            run.error = (
+                "a recipe needs exactly one initial step "
+                "([IEC 61512-1] item 1337, 'a defined beginning and end'); "
+                + (
+                    "found none — every step is a transition target (a cycle?)"
+                    if not initial
+                    else f"found {len(initial)}: {sorted(initial)}"
+                )
+            )
+            self._emit(f"recipe failed: {run.error}")
+            return run  # nothing has been driven; no equipment was touched
+
+        await self._activate(initial[0], run)
 
         deadline = time.monotonic() + self._timeout
         while run.unfinished and not self._aborted:

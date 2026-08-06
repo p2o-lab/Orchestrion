@@ -19,7 +19,9 @@ from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea, Project, Recipe
 from orchestrion.mtp.model import Pea as PeaModel
-from orchestrion.recipe.model import And, Condition, Elapsed, MasterRecipe, Or, StateReached, ValueThreshold
+from orchestrion.recipe.model import (
+    Always, And, Condition, Elapsed, MasterRecipe, Or, StateReached, ValueThreshold,
+)
 from orchestrion.state.codes import ServiceState
 
 router = APIRouter(tags=["recipes"])
@@ -101,8 +103,13 @@ def _check_condition(cond: Condition, peas: dict[int, PeaModel], where: str) -> 
             raise HTTPException(422, f"{where}: PEA {cond.pea_id} is not in this project")
         if cond.value_name not in _value_names(pea):
             raise HTTPException(422, f"{where}: value {cond.value_name!r} not on PEA {cond.pea_id}")
-    elif isinstance(cond, Elapsed):
-        pass  # nothing to resolve — a pure time condition
+    elif isinstance(cond, (Always, Elapsed)):
+        # Nothing to resolve: neither references the plant. `Always` would otherwise fall
+        # through this chain unnamed, which reads as an oversight rather than a decision.
+        # TODO(unit 7): reject `Always` on a transition whose from_ids include a *continuous*
+        # step — there the receptivity IS the completion criterion, so it would start the
+        # service and complete it in the same instant (chart §4).
+        pass
     elif isinstance(cond, (And, Or)):
         for sub in cond.conditions:
             _check_condition(sub, peas, where)

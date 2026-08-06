@@ -98,8 +98,33 @@ class ValueThreshold(BaseModel):
     threshold: float
 
 
+class Always(BaseModel):
+    """The step completing is the only gate — nothing further to wait for.
+
+    Under the two gates ([IEC 61512-1] item 1341, `POL_Step_Model_ISA88.md` §3) a transition
+    already requires its predecessors to have **terminated**. For a step whose procedure ends
+    by itself, that is usually the whole story, and the author has nothing to add — but
+    `Transition.condition` is required, so there has to be a way to say "nothing". This is
+    it. Drawn `=1` in GRAFCET ([IEC 60848] §4.3.3: the transition-condition is *"a logical
+    expression which is true or false"*; the constant-true one is legal).
+
+    ⚠ **Not valid on a transition with a *continuous* step in its `from_ids`.** There the
+    receptivity **is** the completion criterion (step model §2), so `Always` would start the
+    service and complete it in the same instant. Enforced server-side in `api/recipes.py`
+    (unit 7) and in the builder (`POL_Recipe_Chart_GRAFCET.md` §4).
+    """
+
+    type: Literal["Always"] = "Always"
+
+
 class Elapsed(BaseModel):
-    """The transition's from-step(s) have been active for at least `seconds`."""
+    """The transition's from-step(s) have been active for at least `seconds`.
+
+    "Active" depends on the procedure kind, from one rule (step model §9): a transition is
+    enabled when its last from-step became *eligible* — termination for a self-completing
+    step, activation for a continuous one. So this is a **dwell after it finishes** in the
+    first case and a **duration it runs for** in the second.
+    """
 
     type: Literal["Elapsed"] = "Elapsed"
     seconds: float
@@ -120,8 +145,10 @@ class Or(BaseModel):
 
 
 # The condition on a transition — discriminated on `type` (robust vs. field-guessing).
+# Widening it is purely additive: because the union is discriminated, an existing stored
+# recipe names its own type and cannot change meaning when a new member is added.
 Condition = Annotated[
-    Union[StateReached, ValueThreshold, Elapsed, And, Or],
+    Union[Always, StateReached, ValueThreshold, Elapsed, And, Or],
     Field(discriminator="type"),
 ]
 

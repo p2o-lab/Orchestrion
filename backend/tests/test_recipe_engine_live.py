@@ -6,8 +6,8 @@ asserted `run.status == "completed"` **while asserting both services were still 
 That is the behaviour this correction removes: a step is `initiate + await termination`
 (step model §1), so a run cannot be complete while its services are still running.
 
-Every step here uses the **self-completing** procedure (`HC30_Stirring_Duration`), which is
-what unit 3 handles; continuous steps need an explicit `COMPLETE` and arrive in unit 4.
+Both procedure kinds are covered: the **self-completing** `HC30_Stirring_Duration`, and the
+**continuous** `HC30_Stirring_Continous`, which only ends when the POL sends `COMPLETE`.
 
 `drive` and `reset` are wired the way unit 7 will wire them in production:
 `ensure_idle` -> `start_service` -> `await_started`, and `command_service(RESET)`.
@@ -32,6 +32,7 @@ from orchestrion.opcua.registry import PeaRegistry
 from orchestrion.recipe.engine import RecipeEngine
 from orchestrion.recipe.model import (
     END,
+    Always,
     Elapsed,
     Header,
     MasterRecipe,
@@ -44,9 +45,9 @@ from virtual_pea.server import VirtualPEA
 
 LOCAL_AML = Path(__file__).parent.parent / "virtual_pea" / "HC30_Stirring_V8_local.aml"
 
-NOW = Elapsed(seconds=0.0)
-"""'Nothing further to wait for' — completion is gate 1, so the author has nothing to add.
-`Always` is the proper spelling and arrives in unit 5."""
+NOW = Always()
+"""'Nothing further to wait for' — completion is gate 1 (step model §3), so the author has
+nothing to add. Drawn `=1` in GRAFCET."""
 
 
 def _aml_on_port(tmp_path: Path, port: int, name: str) -> Path:
