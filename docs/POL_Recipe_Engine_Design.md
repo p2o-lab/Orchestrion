@@ -6,8 +6,27 @@
 > explains **what ISA-88 / BatchML actually are**, how they map onto MTP, the engine architecture on
 > top of our existing control/registry seams, the data model, and the incremental roadmap.
 >
-> **Status:** design locked with Marwen 2026-07-26; **not yet built.** Build proceeds increment by
-> increment (M5.0 → M5.8), tested at each step (Rule 2). Journal: `docs/progress/009_m5_recipe_engine.md`.
+> **Status:** design locked with Marwen 2026-07-26. **M5.0–M5.3 built; M5.4 builder built.** Journal:
+> `docs/progress/009_m5_recipe_engine.md`, then **`010`**.
+
+> ## ⚠ PARTIALLY SUPERSEDED — 2026-08-04
+>
+> This document is still the authority for **why** (§1), the ISA-88/BatchML primer (§2.1–§2.4, §2.6,
+> §2.7), the architecture seams (§4), the data model (§5), and BatchML (§2.7). **Two things in it are
+> wrong**, corrected by two new documents that take precedence:
+>
+> | wrong here | corrected by |
+> |---|---|
+> | **§2.5** — *"boxes = steps, **arrows = transitions**, split lanes = parallel"*. A transition is a **node** carrying the receptivity, not an arrow; arrows are *directed links* and carry nothing; AND/OR are **link multiplicity**, not elements. | **[`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md)** |
+> | **§4** — *"Drive a step → `start_service(...)`"*. A step is **initiate + await termination** (ISA-88 item 1982): it needs pre-flight, `RESET`, await-started, a latched final state, and — for a *continuous* procedure — an explicit `COMPLETE`, without which it **never terminates**. | **[`POL_Step_Model_ISA88.md`](POL_Step_Model_ISA88.md)** |
+>
+> Both were found by obtaining **IEC 60848:2013** (which we had never held) and re-reading IEC 61512-1.
+> The consequence is a real defect: **two consecutive steps on one PEA run only the first and report
+> success.** Full rationale + the 12-unit build order:
+> **[`progress/010`](progress/010_m5_step_model_correction.md)**.
+>
+> The **§6 roadmap below is also superseded** for M5.4 onward — `010`'s build order replaces it, and
+> absorbs part of M5.5 (the run endpoint). M5.5 keeps the live execution *view*; M5.6–M5.8 stand.
 
 ---
 
@@ -94,14 +113,35 @@ engine executes and logs). General/site recipes are an MES/ERP concern above the
 
 ### 2.5 The execution model = a Sequential Function Chart (this *is* the drag-and-drop chart)
 
-An ISA-88 procedure runs like an SFC (the same construct as IEC 61131-3 SFC):
-- **Step** = a phase to execute → in our world "run PEA X / service Y / procedure Z with params."
-- **Transition** = the **condition** to advance ("when Reactor_A = COMPLETED", "temp > 60", "after 5 min").
-- **Parallel** branch (divergence/convergence) = run steps concurrently, then wait for all (join).
-- **Selection** branch = choose one path on a condition (if/else).
+> ### ⛔ SUPERSEDED — see [`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md)
+>
+> The paragraph below is **wrong in a way that produced two failed builder designs.** Corrected by
+> IEC 60848:2013 §3.1 and §4.3.2, obtained 2026-08-04:
+>
+> - **"arrows = transitions" is wrong.** A **transition is a node** and carries the receptivity
+>   (§4.3.3). Arrows are *directed links* (§3.1.2) and carry **nothing**. Putting the condition on the
+>   edge is what produced the first broken builder.
+> - **AND/OR are not elements.** §3.1's element list is **closed** — *step · transition ·
+>   transition-condition · directed link · action*. §4.3.2: *"a directed link connects **one or several
+>   steps to a transition, or a transition to one or several steps**"* — so AND/OR are **link
+>   multiplicity**, drawn as bars. Modelling the bars as nodes produced the second broken builder.
+> - **There is no START or END element either**, for the same reason.
+>
+> The correct statement: **the chart is GRAFCET (IEC 60848), which IEC 61512-1 normatively
+> references.** Two node kinds — step and transition — alternating (§4.4 *"shall always be
+> respected"*).
 
-The "modern drag-and-drop, chart-oriented recipe builder" **is** this SFC: boxes = steps, arrows =
-transitions, split lanes = parallel. We are not inventing a diagram; we are drawing the standard one.
+The "modern drag-and-drop, chart-oriented recipe builder" **is** a standard SFC/GRAFCET chart — we are
+not inventing a diagram, we are drawing the standard one. What each element *is*, and how parallel
+(§6.2.6/§6.2.7) and selection (§6.2.3) branches are formed, is defined in
+[`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md).
+
+*Original text, kept for the record:*
+> An ISA-88 procedure runs like an SFC (the same construct as IEC 61131-3 SFC):
+> **Step** = a phase to execute → "run PEA X / service Y / procedure Z with params."
+> **Transition** = the **condition** to advance. **Parallel** branch = run steps concurrently, then
+> join. **Selection** branch = choose one path on a condition. Boxes = steps, arrows = transitions,
+> split lanes = parallel.
 
 ### 2.6 What ISA-88 dictates vs. what is ours (the three layers)
 

@@ -151,7 +151,13 @@ statement from "MTP has none".)*
 ## 6. Project structure
 
 Package name is **`orchestrion`** (locked). The tree below is the **current layout** (through the
-live-values increment; refreshed 2026-07-19). `log.py` is the one planned-but-unbuilt file — it lands in M4.
+live-values increment; refreshed 2026-07-19, **corrected 2026-08-05**).
+
+> **⚠ The old note here said "`log.py` is the one planned-but-unbuilt file — it lands in M4."**
+> **M4 shipped without it.** The event log landed as `orchestrion/events.py` (model + in-memory
+> per-PEA log) plus recording and WS broadcast inside `opcua/registry.py` — there is **no
+> `api/log.py`**, and `api/` holds only `projects · peas · mtp_import · live · control · recipes ·
+> schemas`. See [`progress/008`](progress/008_m4_log.md).
 
 ```
 Orchestrion/                    (repo root)
@@ -172,7 +178,8 @@ Orchestrion/                    (repo root)
 │  │  │  └─ registry.py         persistent per-PEA connection · health-drop · WebSocket broadcast
 │  │  ├─ db/                    engine.py (SQLite) · models.py (Project, Pea)
 │  │  ├─ api/                   projects.py · peas.py · mtp_import.py · live.py (connect/disconnect + WS) · control.py · schemas.py
-│  │  │                         (log.py — event log + WS broadcast — is M4, not yet built)
+│  │  ├─ events.py              M4's event log — model + in-memory per-PEA ring buffer
+│  │  │                         (recorded + broadcast from opcua/registry.py; there is NO api/log.py)
 │  │  └─ (state machine)        the 16-state SM lives PEA-side in virtual_pea/state_machine.py; the POL only decodes StateCur via state/codes.py
 │  ├─ virtual_pea/              a conformant OPC UA test PEA (mirrors HC30's address space + §6.2 behaviour)
 │  │  ├─ server.py · state_machine.py · codes.py · run.py
