@@ -70,7 +70,13 @@ class Plant:
         self.services: dict[int, dict[str, object]] = {}
         self.driven: list[str] = []
         self.reset: list[str] = []
+        self.completed: list[str] = []
         self.self_completing: int = 0
+        self.continuous: int = 0
+        self.kinds: dict[int, dict[int, bool]] = {}
+        """pea_id -> procedure_id -> IsSelfCompleting, straight off the parsed MTP
+        ([2658-4:2022] Table 36 #4b). This is the production shape of the engine's
+        `is_self_completing` callback."""
 
     async def start(self) -> None:
         for pea_id, aml in self._amls.items():
@@ -82,8 +88,14 @@ class Plant:
             await self.registry.connect(pea_id, pea)
             self.services[pea_id] = {sv.name: sv for sv in pea.services}
             stirring = pea.services[0]
+            self.kinds[pea_id] = {
+                p.procedure_id: p.is_self_completing for p in stirring.procedures
+            }
             self.self_completing = next(
                 p.procedure_id for p in stirring.procedures if p.is_self_completing
+            )
+            self.continuous = next(
+                p.procedure_id for p in stirring.procedures if not p.is_self_completing
             )
 
     async def stop(self) -> None:
@@ -100,6 +112,17 @@ class Plant:
         await control.start_service(conn, service, step.procedure_id, step.params)
         await control.await_started(conn, service)
         self.driven.append(step.id)
+
+    async def complete_step(self, step: RecipeStep) -> None:
+        """[2658-4:2022] §6.2.3.2 — end a continuous procedure. `command_service` runs the
+        mode handshake and unit 2's `CommandEn` guard, so a refused Complete raises."""
+        conn = self.registry.connection(step.pea_id)
+        service = self.services[step.pea_id][step.service]
+        await control.command_service(conn, service, Command.COMPLETE)
+        self.completed.append(step.id)
+
+    def is_self_completing(self, step: RecipeStep) -> bool:
+        return self.kinds[step.pea_id][step.procedure_id]
 
     async def reset_step(self, step: RecipeStep) -> None:
         conn = self.registry.connection(step.pea_id)
@@ -122,9 +145,15 @@ class Plant:
         kw.setdefault("tick", 0.1)
         kw.setdefault("timeout", 40.0)
         return RecipeEngine(
-            recipe, drive_step=self.drive, reset_step=self.reset_step,
-            state_of=self.state_of, value_of=self.value_of,
-            on_event=events.append, **kw,
+            recipe,
+            drive_step=self.drive,
+            reset_step=self.reset_step,
+            complete_step=self.complete_step,
+            is_self_completing=self.is_self_completing,
+            state_of=self.state_of,
+            value_of=self.value_of,
+            on_event=events.append,
+            **kw,
         )
 
 
@@ -241,6 +270,55 @@ def test_parallel_branches_across_three_peas(tmp_path):
         assert p.driven[0] == "s0"
         assert set(p.driven) == {"s0", "sA", "sB"}
         assert set(p.reset) == {"s0", "sA", "sB"}
+        return run
+
+    _run(plant, body)
+
+
+def test_continuous_step_is_ended_by_its_receptivity(tmp_path):
+    """⭐ **The other half of the defect.** `HC30_Stirring_Continous` holds EXECUTE for
+    ever; `[2658-4:2022]` §6.2.3.2 says only an explicit `Complete` from the POL ends it.
+    Before unit 4 the engine never sent one, so a continuous step deadlocked the recipe.
+
+    Here the receptivity IS the completion criterion (step model §2): after 1 s of real
+    stirring the engine sends `Complete`, the service walks to `COMPLETED`, and only then
+    does the next step start.
+    """
+    plant = Plant({
+        1: _aml_on_port(tmp_path, 48168, "pea1.aml"),
+        2: _aml_on_port(tmp_path, 48169, "pea2.aml"),
+    })
+
+    async def body(p: Plant):
+        recipe = MasterRecipe(
+            header=Header(name="continuous"),
+            steps=[
+                _step("s1", 1, p.continuous),          # holds EXECUTE until told to stop
+                _step("s2", 2, p.self_completing),
+            ],
+            transitions=[
+                # §9 — for a continuous step this is a *duration*: "stir for 1 s, then end it".
+                Transition(from_ids=["s1"], to_ids=["s2"], condition=Elapsed(seconds=1.0)),
+                Transition(from_ids=["s2"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+
+        # While s1 is running it must really be in EXECUTE and stay there.
+        conn = p.registry.connection(1)
+        service = p.services[1]["Stirring"]
+
+        task = asyncio.create_task(p.engine(recipe, events).run())
+        await asyncio.sleep(0.6)
+        assert not task.done()
+        assert await conn.read_state(service) is ServiceState.EXECUTE, "continuous step ended early"
+        assert p.completed == [], "Complete sent before the receptivity held"
+
+        run = await task
+        assert run.status == "completed", (run.status, run.error, events)
+        assert p.completed == ["s1"], p.completed        # Complete sent, exactly once
+        assert p.driven == ["s1", "s2"], p.driven        # s2 started only after s1 ended
+        assert p.reset == ["s1", "s2"], p.reset
         return run
 
     _run(plant, body)

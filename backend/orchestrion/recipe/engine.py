@@ -22,11 +22,20 @@ Four step states, not two (step model §8): `RUNNING` -> [`COMPLETING`] -> `TERM
 `DONE`. A *terminated* step has finished but its transition has not fired yet — which is
 what makes "S1 finished, waiting for Temp > 80" observable.
 
-**Scope of this unit.** Continuous procedures (which need an explicit `COMPLETE` before they
-terminate — step model §2) are **not** handled here; a continuous step will never leave an
-acting state and the run will time out. That is unit 4. Likewise `Always` (unit 5), the
-held/paused *reporting* and the disconnect check (unit 6), and deliberate OR-branch
-grouping (unit 8) are deferred, each noted at its site below.
+**Two kinds of procedure, two shapes of step** (step model §2, `[2658-4:2022]` §6.2.3.1/.2):
+
+* **self-completing** — the PEA walks to `COMPLETED` on its own. The receptivity is an
+  *additional* gate evaluated **after** termination.
+* **continuous** — the service holds `EXECUTE` indefinitely and only an explicit `COMPLETE`
+  ends it (*"the Complete command to terminate the service is sent to the PEA by the POL"*).
+  Its receptivity **is** the completion criterion, evaluated **while it runs**.
+
+So advancing over a continuous step is **two phases**: the receptivity fires and we send
+`COMPLETE` (the transition is *armed*), then termination is latched and the transition
+clears. An armed transition is never re-evaluated (chart §5(a)).
+
+**Still deferred:** `Always` (unit 5), held/paused *reporting* and the disconnect check
+(unit 6), and deliberate OR-branch grouping (unit 8) — each noted at its site below.
 
 Decoupled for testability: `drive_step`, `reset_step`, `state_of` and `value_of` are
 injected callbacks. **No OPC UA code here** — the engine adds orchestration logic only.
@@ -41,7 +50,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from orchestrion.recipe.conditions import EvalContext, StateOf, ValueOf, is_met
-from orchestrion.recipe.model import END, MasterRecipe, RecipeStep
+from orchestrion.recipe.model import END, MasterRecipe, RecipeStep, Transition
 from orchestrion.state.classification import StateClass, classify, is_final
 from orchestrion.state.codes import ServiceState
 
@@ -51,6 +60,16 @@ DriveStep = Callable[[RecipeStep], Awaitable[None]]
 # Return a finished step's service to IDLE. [IEC 61512-1] Table B.2 makes this mandatory:
 # RESETTING "always becomes active between executions of the Process-oriented task".
 ResetStep = Callable[[RecipeStep], Awaitable[None]]
+# End a *continuous* step. [2658-4:2022] §6.2.3.2: "For continuous procedures, the Complete
+# command to terminate the service is sent to the PEA by the POL or the operator."
+CompleteStep = Callable[[RecipeStep], Awaitable[None]]
+# Whether a step's procedure ends by itself — [2658-4:2022] Table 36 #4b `IsSelfCompleting`.
+#
+# Injected rather than stored on `RecipeStep`, deliberately: `RecipeStep` is the *persisted*
+# wire model, and the kind is a property of the **PEA's MTP**, not of the recipe. Putting it
+# on the step would let a saved recipe go stale against its own plant, and re-importing an
+# MTP could silently invalidate stored recipes. Production resolves it from the parsed `Pea`.
+IsSelfCompleting = Callable[[RecipeStep], bool]
 # A recipe-level event message sink (the production impl records EventKind.RECIPE).
 OnEvent = Callable[[str], None]
 
@@ -110,6 +129,8 @@ class RecipeEngine:
         *,
         drive_step: DriveStep,
         reset_step: ResetStep,
+        complete_step: CompleteStep,
+        is_self_completing: IsSelfCompleting,
         state_of: StateOf,
         value_of: ValueOf | None = None,
         on_event: OnEvent | None = None,
@@ -119,6 +140,11 @@ class RecipeEngine:
         self._recipe = recipe
         self._drive = drive_step
         self._reset = reset_step
+        self._complete = complete_step
+        # Required, not defaulted: guessing "self-completing" for an unknown procedure would
+        # deadlock a continuous step forever, and guessing the other way would complete a
+        # self-completing one the instant its receptivity held. Neither is safe (Rule 1).
+        self._is_self_completing = is_self_completing
         self._state_of = state_of
         self._value_of = value_of or _no_values
         self._emit: OnEvent = on_event or (lambda _msg: None)
@@ -129,8 +155,18 @@ class RecipeEngine:
         self._aborted = False
         self._steps = {s.id: s for s in recipe.steps}
         self._terminated_at: dict[str, float] = {}
-        """step id -> monotonic time it was latched. `Elapsed` counts from here, because a
-        transition becomes *enabled* when its last from-step terminates (step model §9)."""
+        """step id -> monotonic time it was latched. For a **self-completing** step the
+        transition becomes *enabled* when it terminates, so `Elapsed(30)` is a **dwell**:
+        "wait 30 s after it finishes" (step model §9)."""
+        self._running_since: dict[str, float] = {}
+        """step id -> monotonic time it was activated. For a **continuous** step the
+        transition is enabled *immediately* — the receptivity IS the completion criterion —
+        so `Elapsed(30)` is a **duration**: "run for 30 s, then complete it" (§9)."""
+        self._armed: set[int] = set()
+        """Indices of transitions that have fired their receptivity and sent `COMPLETE`, and
+        are now awaiting termination. **The winning branch is latched here** (chart §5(a)):
+        an armed transition is never re-evaluated, so a receptivity falling false during
+        `COMPLETING` cannot strand the run with no true branch."""
 
     def abort(self) -> None:
         """Request the run stop after the current tick (idempotent).
@@ -182,7 +218,8 @@ class RecipeEngine:
 
         Synchronous: `state_of` is a plain lookup against the registry snapshot, no I/O.
         """
-        for step_id in [s for s, st in run.steps.items() if st is StepState.RUNNING]:
+        awaiting = (StepState.RUNNING, StepState.COMPLETING)
+        for step_id in [s for s, st in run.steps.items() if st in awaiting]:
             step = self._steps[step_id]
             name = self._state_of(step.pea_id, step.service)
             if name is None:
@@ -217,8 +254,35 @@ class RecipeEngine:
                 self._emit(f"recipe failed: {run.error}")
                 return
 
+    def _eligible(self, transition: Transition, run: RecipeRun) -> list[str] | None:
+        """**Gate 1**, generalised over both procedure kinds (step model §3).
+
+        Returns the continuous from-steps that are still running and must be sent
+        `COMPLETE` — empty when every from-step has already terminated — or `None` when the
+        transition is not eligible at all.
+
+        * a **self-completing** from-step must have `TERMINATED`;
+        * a **continuous** one is still `RUNNING`, because its receptivity is what ends it.
+
+        A continuous step found already `TERMINATED` counts as terminated and advances
+        directly: that means it ended without us asking (an operator, or an anomaly), and
+        there is nothing left to `COMPLETE`.
+        """
+        pending: list[str] = []
+        for from_id in transition.from_ids:
+            state = run.steps.get(from_id)
+            if state is StepState.TERMINATED:
+                continue
+            if state is StepState.RUNNING and not self._is_self_completing(
+                self._steps[from_id]
+            ):
+                pending.append(from_id)
+                continue
+            return None  # never started, still acting, already completing, or done
+        return pending
+
     async def _fire(self, run: RecipeRun) -> bool:
-        """Fire every transition whose both gates hold. Returns whether anything fired."""
+        """Advance every transition whose gates hold. Returns whether anything happened."""
         fired = False
         # Captured once, and safe: `_terminated_at` is only written by `_observe`, which has
         # already finished for this pass. (The previous implementation captured `now` here
@@ -226,50 +290,79 @@ class RecipeEngine:
         now = time.monotonic()
 
         # TODO(unit 8): group a step's outgoing transitions and fire at most one, in explicit
-        # priority order (chart §8). Today mutual exclusion is incidental — a fired from-step
-        # becomes DONE, so a later transition's gate 1 fails.
-        for transition in self._recipe.transitions:
-            # gate 1 — structural. Reads the latch, never live state.
-            if not all(
-                run.steps.get(f) is StepState.TERMINATED for f in transition.from_ids
-            ):
+        # priority order (chart §8). Iteration order already *is* that priority order, since
+        # `transitions` is an ordered list; what is missing is the deliberate grouping.
+        for index, transition in enumerate(self._recipe.transitions):
+            # ── phase 2 ── an armed transition awaits termination and is NEVER re-evaluated
+            # (chart §5(a)): a receptivity falling false during COMPLETING must not strand
+            # the run with no true branch.
+            if index in self._armed:
+                if all(
+                    run.steps.get(f) is StepState.TERMINATED for f in transition.from_ids
+                ):
+                    self._armed.discard(index)
+                    await self._advance(transition, run)
+                    fired = True
                 continue
 
-            # §9 — a transition becomes *enabled* when its last from-step terminated, so
-            # `Elapsed(30)` on a self-completing step means "wait 30 s after it finishes".
-            elapsed = now - max(self._terminated_at[f] for f in transition.from_ids)
+            pending = self._eligible(transition, run)
+            if pending is None:
+                continue
+
+            # §9 — a transition is *enabled* when its last from-step became eligible: for a
+            # self-completing step that is termination, for a continuous one it is
+            # activation. One rule, from which `Elapsed` falls out as a **dwell** in the
+            # first case and a **duration** in the second.
+            elapsed = now - max(
+                self._running_since[f] if f in pending else self._terminated_at[f]
+                for f in transition.from_ids
+            )
             context = EvalContext(self._state_of, self._value_of, elapsed)
 
-            # gate 2 — the author's receptivity.
+            # ── gate 2 ── the author's receptivity.
             if not is_met(transition.condition, context):
                 continue
 
-            for from_id in transition.from_ids:
-                # §5 / §12 item 0a — RESET on advance, not on termination. Until now the
-                # service sat in its final state, which is what makes a terminated-but-not-
-                # advanced step visible on the PEA.
-                await self._reset(self._steps[from_id])
-                run.steps[from_id] = StepState.DONE
-
-            # Emitted here, between deactivating the predecessors and activating the
-            # successors, because that is the causal order: the transition clears, and
-            # *therefore* the next steps start. Emitting it after activation made the
-            # operator timeline read backwards ("s2 started" before "transition fired").
-            self._emit(
-                f"transition fired: {sorted(transition.from_ids)} -> "
-                f"{sorted(transition.to_ids)}"
-            )
-
-            for to_id in transition.to_ids:
-                if to_id != END:
-                    await self._activate(to_id, run)
-
+            if pending:
+                # ── phase 1 ── for a continuous step the receptivity IS the completion
+                # criterion (step model §2), so satisfying it means *ending* the step, not
+                # advancing past it. Send `COMPLETE`, arm, and wait for termination.
+                for from_id in pending:
+                    await self._complete(self._steps[from_id])
+                    run.steps[from_id] = StepState.COMPLETING
+                    self._emit(f"step {from_id} completing: Complete sent")
+                self._armed.add(index)
+            else:
+                await self._advance(transition, run)
             fired = True
         return fired
+
+    async def _advance(self, transition: Transition, run: RecipeRun) -> None:
+        """The transition clears: deactivate its from-steps, activate its to-steps."""
+        for from_id in transition.from_ids:
+            # §5 / §12 item 0a — RESET on advance, not on termination. Until this moment the
+            # service sat in its final state, which is what makes a terminated-but-not-yet-
+            # advanced step visible on the PEA rather than only in our own run state.
+            await self._reset(self._steps[from_id])
+            run.steps[from_id] = StepState.DONE
+
+        # Emitted between deactivating the predecessors and activating the successors,
+        # because that is the causal order: the transition clears, and *therefore* the next
+        # steps start. Emitting it after activation made the operator timeline read
+        # backwards ("s2 started" before "transition fired").
+        self._emit(
+            f"transition fired: {sorted(transition.from_ids)} -> "
+            f"{sorted(transition.to_ids)}"
+        )
+
+        for to_id in transition.to_ids:
+            if to_id != END:
+                await self._activate(to_id, run)
 
     async def _activate(self, step_id: str, run: RecipeRun) -> None:
         step = self._steps[step_id]
         run.steps[step_id] = StepState.RUNNING
+        self._running_since[step_id] = time.monotonic()
         self._emit(
             f"step {step_id} started: {step.service} / procedure {step.procedure_id} "
             f"on PEA {step.pea_id}"

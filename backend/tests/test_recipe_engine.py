@@ -38,15 +38,28 @@ class FakePlant:
     it to IDLE, exactly as `control.ensure_idle` would.
     """
 
-    def __init__(self, on_start: str = "EXECUTE") -> None:
+    def __init__(self, on_start: str = "EXECUTE", continuous: set[str] | None = None) -> None:
         self.states: dict[tuple[int, str], str] = {}
         self.driven: list[str] = []
         self.reset: list[str] = []
+        self.completed: list[str] = []
         self._on_start = on_start
+        self.continuous = continuous or set()
+        """Step ids whose procedure is *continuous* — they hold EXECUTE until told to stop."""
 
     async def drive(self, step: RecipeStep) -> None:
         self.driven.append(step.id)
-        self.states[(step.pea_id, step.service)] = self._on_start
+        # A continuous procedure holds EXECUTE regardless of what `on_start` says: only an
+        # explicit Complete ends it ([2658-4:2022] §6.2.3.2).
+        start = "EXECUTE" if step.id in self.continuous else self._on_start
+        self.states[(step.pea_id, step.service)] = start
+
+    async def complete_step(self, step: RecipeStep) -> None:
+        self.completed.append(step.id)
+        self.states[(step.pea_id, step.service)] = ServiceState.COMPLETED.name
+
+    def is_self_completing(self, step: RecipeStep) -> bool:
+        return step.id not in self.continuous
 
     async def reset_step(self, step: RecipeStep) -> None:
         self.reset.append(step.id)
@@ -85,8 +98,13 @@ def _engine(recipe: MasterRecipe, plant: FakePlant, **kw) -> RecipeEngine:
     kw.setdefault("tick", 0.001)
     kw.setdefault("timeout", 5.0)
     return RecipeEngine(
-        recipe, drive_step=plant.drive, reset_step=plant.reset_step,
-        state_of=plant.state_of, **kw,
+        recipe,
+        drive_step=plant.drive,
+        reset_step=plant.reset_step,
+        complete_step=plant.complete_step,
+        is_self_completing=plant.is_self_completing,
+        state_of=plant.state_of,
+        **kw,
     )
 
 
@@ -323,12 +341,9 @@ def test_or_divergence_selects_one_branch() -> None:
             Transition(from_ids=["sY"], to_ids=[END], condition=Elapsed(seconds=0.0)),
         ],
     )
-    engine = RecipeEngine(
-        recipe, drive_step=plant.drive, reset_step=plant.reset_step,
-        state_of=plant.state_of, value_of=lambda p, n: 20.0,   # cold
-        tick=0.001, timeout=5.0,
+    run = asyncio.run(
+        _engine(recipe, plant, value_of=lambda p, n: 20.0).run()   # cold
     )
-    run = asyncio.run(engine.run())
     assert run.status == "completed"
     assert "sY" in plant.driven and "sX" not in plant.driven
     assert run.done == {"s0", "sY"}
@@ -353,3 +368,155 @@ def test_times_out_if_stuck() -> None:
     plant = FakePlant(on_start="IDLE")   # never leaves IDLE, never terminates
     run = asyncio.run(_engine(_linear(), plant, tick=0.005, timeout=0.1).run())
     assert run.status == "failed" and run.error == "timed out"
+
+
+# ── unit 4: continuous procedures ───────────────────────────────────────────────────
+
+def _hot(pea_id: int = 1) -> ValueThreshold:
+    return ValueThreshold(pea_id=pea_id, value_name="Temp", op=">", threshold=80.0)
+
+
+def test_continuous_step_never_terminates_on_its_own() -> None:
+    """[2658-4:2022] §6.2.3.2 — a continuous procedure holds EXECUTE until told to stop.
+    With a receptivity that never holds, the step must hang, not quietly finish."""
+    plant = FakePlant(continuous={"s1", "s2"})
+    run = asyncio.run(
+        _engine(_linear(receptivity=_hot()), plant, tick=0.005, timeout=0.15).run()
+    )
+    assert run.status == "failed" and run.error == "timed out"
+    assert plant.completed == [], "Complete was sent although the receptivity never held"
+
+
+def test_continuous_step_is_completed_by_its_receptivity_then_advances() -> None:
+    """§2's continuous column: receptivity -> COMPLETE -> await termination -> advance.
+    The receptivity does not advance *past* a running service — it **ends** it."""
+    plant = FakePlant(on_start="COMPLETED", continuous={"s1"})
+    temp = {"v": 20.0}
+    recipe = MasterRecipe(
+        header=Header(name="continuous"),
+        steps=[_step("s1", 1), _step("s2", 2)],
+        transitions=[
+            Transition(from_ids=["s1"], to_ids=["s2"], condition=_hot()),
+            Transition(from_ids=["s2"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+        ],
+    )
+
+    async def scenario():
+        engine = _engine(recipe, plant, tick=0.005, value_of=lambda p, n: temp["v"])
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.04)
+        assert plant.completed == [] and plant.driven == ["s1"], "advanced while cold"
+        temp["v"] = 95.0                      # the completion criterion is met
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed", run.error
+    assert plant.completed == ["s1"], plant.completed   # Complete sent exactly once
+    assert plant.driven == ["s1", "s2"]
+    assert plant.reset == ["s1", "s2"]                  # §5 still mandatory
+
+
+def test_an_armed_transition_is_not_re_evaluated() -> None:
+    """chart §5(a) — once `COMPLETE` is sent the branch is latched. If the receptivity
+    falls false while the service is COMPLETING, the run must still advance; re-evaluating
+    would strand it with a terminated step and no true branch."""
+    plant = FakePlant(continuous={"s1"})
+    temp = {"v": 95.0}
+
+    async def complete_then_go_cold(step: RecipeStep) -> None:
+        await FakePlant.complete_step(plant, step)
+        temp["v"] = 20.0            # receptivity falls false the instant Complete is sent
+
+    plant.complete_step = complete_then_go_cold  # type: ignore[method-assign]
+
+    recipe = MasterRecipe(
+        header=Header(name="latched"),
+        steps=[_step("s1", 1)],
+        transitions=[Transition(from_ids=["s1"], to_ids=[END], condition=_hot())],
+    )
+    run = asyncio.run(
+        _engine(recipe, plant, tick=0.005, timeout=1.0,
+                value_of=lambda p, n: temp["v"]).run()
+    )
+    assert run.status == "completed", run.error
+    assert plant.completed == ["s1"] and plant.reset == ["s1"]
+
+
+def test_elapsed_on_a_continuous_step_is_a_duration_from_start() -> None:
+    """§9 — one rule, two readings. For a continuous step the transition is enabled
+    *immediately*, so `Elapsed(0.1)` means "run for 100 ms, then complete it"."""
+    plant = FakePlant(continuous={"s1"})
+    recipe = MasterRecipe(
+        header=Header(name="duration"),
+        steps=[_step("s1", 1)],
+        transitions=[
+            Transition(from_ids=["s1"], to_ids=[END], condition=Elapsed(seconds=0.1))
+        ],
+    )
+
+    async def scenario():
+        started = asyncio.get_running_loop().time()
+        run = await _engine(recipe, plant, tick=0.005).run()
+        return run, asyncio.get_running_loop().time() - started
+
+    run, took = asyncio.run(scenario())
+    assert run.status == "completed"
+    assert plant.completed == ["s1"]
+    assert took >= 0.1, took          # it really ran for the duration before being completed
+
+
+def test_or_divergence_out_of_a_continuous_step_takes_one_branch() -> None:
+    """chart §5(a) — the branch receptivities are jointly the completion criterion; the
+    first to fire wins, `COMPLETE` is sent **once**, and the other branch never arms."""
+    plant = FakePlant(on_start="COMPLETED", continuous={"s0"})
+    recipe = MasterRecipe(
+        header=Header(name="continuous-selection"),
+        steps=[_step("s0", 1), _step("sX", 2), _step("sY", 3)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sX"], condition=_hot()),
+            Transition(from_ids=["s0"], to_ids=["sY"], condition=Elapsed(seconds=10.0)),
+            Transition(from_ids=["sX"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["sY"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+        ],
+    )
+    run = asyncio.run(
+        _engine(recipe, plant, tick=0.005, value_of=lambda p, n: 95.0).run()
+    )
+    assert run.status == "completed", run.error
+    assert plant.completed == ["s0"], "Complete must be sent exactly once"
+    assert "sX" in plant.driven and "sY" not in plant.driven
+    assert run.done == {"s0", "sX"}
+
+
+def test_mixed_kind_join_completes_only_the_continuous_branch() -> None:
+    """chart §5(b) — the join's receptivity ends every *continuous* from-step; the
+    self-completing one only has to have terminated. Item 1341 is satisfied at the instant
+    the next step is initiated: all predecessors completed, and the condition true."""
+    plant = FakePlant(on_start="COMPLETED", continuous={"sA"})  # sA continuous, sB not
+    temp = {"v": 20.0}
+    recipe = MasterRecipe(
+        header=Header(name="mixed-join"),
+        steps=[_step("s0", 1), _step("sA", 2), _step("sB", 3), _step("s4", 4)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=Elapsed(seconds=0.0)),
+            Transition(from_ids=["sA", "sB"], to_ids=["s4"], condition=_hot()),
+            Transition(from_ids=["s4"], to_ids=[END], condition=Elapsed(seconds=0.0)),
+        ],
+    )
+
+    async def scenario():
+        engine = _engine(recipe, plant, tick=0.005, value_of=lambda p, n: temp["v"])
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.05)
+        # sB (self-completing) has terminated; sA (continuous) is still running. The join
+        # must NOT have fired — its receptivity is false.
+        assert "s4" not in plant.driven, plant.driven
+        assert plant.completed == []
+        temp["v"] = 95.0
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed", run.error
+    assert plant.completed == ["sA"], "only the continuous branch is Completed"
+    assert set(plant.driven) == {"s0", "sA", "sB", "s4"}
+    assert run.done == {"s0", "sA", "sB", "s4"}
