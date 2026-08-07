@@ -19,8 +19,10 @@ from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea, Project, Recipe
 from orchestrion.mtp.model import Pea as PeaModel
+from orchestrion.mtp.model import ServiceProcedure
 from orchestrion.recipe.model import (
-    Always, And, Condition, Elapsed, MasterRecipe, Or, StateReached, ValueThreshold,
+    END, Always, And, Condition, Elapsed, MasterRecipe, Or, RecipeStep, StateReached,
+    ValueThreshold,
 )
 from orchestrion.state.codes import ServiceState
 
@@ -104,20 +106,127 @@ def _check_condition(cond: Condition, peas: dict[int, PeaModel], where: str) -> 
         if cond.value_name not in _value_names(pea):
             raise HTTPException(422, f"{where}: value {cond.value_name!r} not on PEA {cond.pea_id}")
     elif isinstance(cond, (Always, Elapsed)):
-        # Nothing to resolve: neither references the plant. `Always` would otherwise fall
+        # Nothing to *resolve*: neither references the plant. `Always` would otherwise fall
         # through this chain unnamed, which reads as an oversight rather than a decision.
-        # TODO(unit 7): reject `Always` on a transition whose from_ids include a *continuous*
-        # step — there the receptivity IS the completion criterion, so it would start the
-        # service and complete it in the same instant (chart §4).
+        # Its one restriction — not on a continuous step's transition — is checked in
+        # `_check_continuous_steps_have_a_real_receptivity`, because it needs the transition
+        # it sits on, not just the condition.
         pass
     elif isinstance(cond, (And, Or)):
         for sub in cond.conditions:
             _check_condition(sub, peas, where)
 
 
+def _procedure(peas: dict[int, PeaModel], step: RecipeStep) -> ServiceProcedure:
+    """The parsed procedure a step binds to. Assumes the reference checks below passed."""
+    pea = peas[step.pea_id]
+    service = next(s for s in pea.services if s.name == step.service)
+    return next(p for p in service.procedures if p.procedure_id == step.procedure_id)
+
+
+def _check_exactly_one_initial_step(recipe: MasterRecipe) -> None:
+    """[IEC 61512-1] item 1337 — a procedure has *"a defined beginning and end"*. Singular.
+
+    The engine guards this too (unit 5), but a recipe can be `POST`ed straight past the
+    builder, so the API is where a malformed one has to be stopped — the builder is an
+    authoring aid, not a safety boundary (`POL_Recipe_Chart_GRAFCET.md` §2).
+    """
+    targets = {d for t in recipe.transitions for d in t.to_ids}
+    initial = sorted(s.id for s in recipe.steps if s.id not in targets)
+    if len(initial) == 1:
+        return
+    detail = (
+        "found none — every step is a transition target (a cycle?)"
+        if not initial
+        else f"found {len(initial)}: {initial}"
+    )
+    raise HTTPException(
+        422,
+        "a recipe needs exactly one initial step "
+        f"([IEC 61512-1] item 1337, 'a defined beginning and end'); {detail}",
+    )
+
+
+def _check_no_cycles(recipe: MasterRecipe) -> None:
+    """Reject a chart that loops back — `POL_Recipe_Chart_GRAFCET.md` §2/§10.
+
+    ISA-88's procedure model is *"steps **in series, in parallel, or a combination of
+    both**"* (item 1339) with a defined beginning and end; it never describes a loop, and
+    its only mention of "looping back" (item 3112) is a batch manager's **recipe-editing**
+    capability. GRAFCET does permit cycles (§6.2.2), but per chart §0a GRAFCET is a borrowed
+    notation, not our conformance target — so **this is consistent with ISA-88, and allowing
+    cycles would be unsupported by it.**
+
+    It is also what makes the initial step inferable from topology at all: in a cyclic chart
+    every step is a transition target, so `_check_exactly_one_initial_step` finds none and
+    the engine would have nothing to activate.
+
+    Kahn's algorithm — peel off steps with no remaining predecessor; whatever survives is a
+    cycle, and naming those steps is what makes the error actionable.
+    """
+    successors: dict[str, set[str]] = {s.id: set() for s in recipe.steps}
+    incoming: dict[str, int] = {s.id: 0 for s in recipe.steps}
+    for transition in recipe.transitions:
+        for source in transition.from_ids:
+            for target in transition.to_ids:
+                if target == END or target in successors[source]:
+                    continue  # END is not a step; parallel edges count once
+                successors[source].add(target)
+                incoming[target] += 1
+
+    queue = [sid for sid, n in incoming.items() if n == 0]
+    settled = 0
+    while queue:
+        sid = queue.pop()
+        settled += 1
+        for target in successors[sid]:
+            incoming[target] -= 1
+            if incoming[target] == 0:
+                queue.append(target)
+
+    if settled != len(recipe.steps):
+        looped = sorted(sid for sid, n in incoming.items() if n > 0)
+        raise HTTPException(
+            422,
+            f"the recipe loops back on itself: {looped}. ISA-88 procedures run from a "
+            "defined beginning to a defined end (item 1337); repeating steps is not modelled.",
+        )
+
+
+def _check_continuous_steps_have_a_real_receptivity(
+    recipe: MasterRecipe, peas: dict[int, PeaModel]
+) -> None:
+    """`Always` is invalid on a transition with a *continuous* step in its `from_ids`.
+
+    For a continuous procedure the receptivity **is** the completion criterion
+    (`POL_Step_Model_ISA88.md` §2), so `Always` would start the service and complete it in
+    the same instant. Stated over the whole `from_ids` rather than one step's exit, because
+    a continuous step may also feed an AND-join (chart §4, §5(b)).
+    """
+    steps = {s.id: s for s in recipe.steps}
+    for transition in recipe.transitions:
+        if not isinstance(transition.condition, Always):
+            continue
+        for source in transition.from_ids:
+            if _procedure(peas, steps[source]).is_self_completing:
+                continue
+            raise HTTPException(
+                422,
+                f"transition {transition.from_ids}->{transition.to_ids}: step {source!r} runs a "
+                "continuous procedure, whose receptivity IS its completion criterion — "
+                "'Always' would complete it the instant it starts. Give it a real condition "
+                "(a duration, a threshold, an operator confirmation).",
+            )
+
+
 def _validate_against_project(recipe: MasterRecipe, peas: dict[int, PeaModel]) -> None:
-    """Reject a recipe whose steps/conditions reference a PEA/service/procedure/value/state that
-    does not exist in this project (HTTP 422). The pure model only checks internal structure."""
+    """Reject a recipe that could not run on this project (HTTP 422).
+
+    Two layers, in order: every reference must **resolve** against the project's actual
+    PEAs, and then the graph must have a **runnable shape**. The pure model only checks
+    internal consistency (ids unique, endpoints resolve) — deliberately, so that whatever is
+    already stored still loads; this is the gate for anything created or updated.
+    """
     for step in recipe.steps:
         where = f"step {step.id!r}"
         pea = _require_service(peas, step.pea_id, step.service, where)
@@ -127,6 +236,12 @@ def _validate_against_project(recipe: MasterRecipe, peas: dict[int, PeaModel]) -
 
     for t in recipe.transitions:
         _check_condition(t.condition, peas, f"transition {t.from_ids}->{t.to_ids}")
+
+    # Shape. These run after the reference checks because they lean on them: `_procedure`
+    # assumes every step resolves.
+    _check_exactly_one_initial_step(recipe)
+    _check_no_cycles(recipe)
+    _check_continuous_steps_have_a_real_receptivity(recipe, peas)
 
 
 @router.post("/api/projects/{project_id}/recipes", response_model=RecipeSummary, status_code=201,

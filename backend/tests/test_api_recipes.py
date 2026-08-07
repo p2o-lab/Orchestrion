@@ -127,3 +127,101 @@ def test_structural_validation_still_applies(pea, client):
     body["transitions"][0]["to_ids"] = ["ghost"]  # unknown step id — caught by the model
     r = client.post(f"/api/projects/{project_id}/recipes", json=body)
     assert r.status_code == 422 and "unknown step id" in r.text
+
+
+# ── unit 7b: graph shape ────────────────────────────────────────────────────────────
+#
+# The engine guards these too, but a recipe can be POSTed straight past the builder —
+# which is exactly how the integration test works — so the API is the real gate. HC30
+# ships procedure 1 = Continous (not self-completing) and 2 = Duration (self-completing).
+
+CONTINUOUS, SELF_COMPLETING = 1, 2
+
+
+def _steps(pea_id: int, *ids: str, procedure_id: int = SELF_COMPLETING) -> list[dict]:
+    return [
+        {"id": i, "pea_id": pea_id, "service": "Stirring",
+         "procedure_id": procedure_id, "params": {}}
+        for i in ids
+    ]
+
+
+def _always(from_ids: list[str], to_ids: list[str]) -> dict:
+    return {"from_ids": from_ids, "to_ids": to_ids, "condition": {"type": "Always"}}
+
+
+def test_zero_initial_steps_rejected(pea, client):
+    """A closed loop leaves no step untargeted — and the engine would then report
+    `completed` having done nothing. [IEC 61512-1] item 1337 wants a defined beginning."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "cycle"}, "steps": _steps(pea_id, "s1", "s2"),
+            "transitions": [_always(["s1"], ["s2"]), _always(["s2"], ["s1"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422, r.text
+    assert "exactly one initial step" in r.text and "found none" in r.text
+
+
+def test_several_initial_steps_rejected(pea, client):
+    """Two beginnings would start both on live equipment at once."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "two-beginnings"}, "steps": _steps(pea_id, "s1", "s2"),
+            "transitions": [_always(["s1"], ["END"]), _always(["s2"], ["END"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422, r.text
+    assert "exactly one initial step" in r.text and "['s1', 's2']" in r.text
+
+
+def test_a_downstream_cycle_is_rejected_and_named(pea, client):
+    """s1 is a valid beginning, so the initial-step rule passes — but s2 and s3 loop.
+    The error has to name them or it is not actionable."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "loop"}, "steps": _steps(pea_id, "s1", "s2", "s3"),
+            "transitions": [_always(["s1"], ["s2"]), _always(["s2"], ["s3"]),
+                            _always(["s3"], ["s2"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422, r.text
+    assert "loops back on itself" in r.text and "['s2', 's3']" in r.text
+
+
+def test_a_parallel_diamond_is_not_mistaken_for_a_cycle(pea, client):
+    """A split and re-join is not a loop — the cycle check must not over-reach."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "diamond"}, "steps": _steps(pea_id, "s0", "sA", "sB", "s4"),
+            "transitions": [_always(["s0"], ["sA", "sB"]), _always(["sA", "sB"], ["s4"]),
+                            _always(["s4"], ["END"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 201, r.text
+
+
+def test_always_on_a_continuous_step_rejected(pea, client):
+    """`Always` on a continuous step would start the service and complete it in the same
+    instant — its receptivity IS the completion criterion (step model §2)."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "bad-continuous"},
+            "steps": _steps(pea_id, "s1", procedure_id=CONTINUOUS),
+            "transitions": [_always(["s1"], ["END"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422, r.text
+    assert "continuous procedure" in r.text and "'s1'" in r.text
+
+
+def test_always_on_a_self_completing_step_is_fine(pea, client):
+    """The same chart with the self-completing procedure is exactly what `Always` is for."""
+    project_id, pea_id = pea
+    body = {"header": {"name": "good"}, "steps": _steps(pea_id, "s1"),
+            "transitions": [_always(["s1"], ["END"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 201, r.text
+
+
+def test_always_is_rejected_on_a_join_fed_by_a_continuous_step(pea, client):
+    """The rule is stated over the whole `from_ids`, not one step's exit — a continuous
+    step may also feed an AND-join (chart §4, §5(b))."""
+    project_id, pea_id = pea
+    steps = _steps(pea_id, "s0", "sB", "s4") + _steps(pea_id, "sA", procedure_id=CONTINUOUS)
+    body = {"header": {"name": "mixed-join"}, "steps": steps,
+            "transitions": [_always(["s0"], ["sA", "sB"]), _always(["sA", "sB"], ["s4"]),
+                            _always(["s4"], ["END"])]}
+    r = client.post(f"/api/projects/{project_id}/recipes", json=body)
+    assert r.status_code == 422, r.text
+    assert "continuous procedure" in r.text and "'sA'" in r.text
