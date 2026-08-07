@@ -19,14 +19,22 @@ from orchestrion.api.mtp_import import parse_aml
 from orchestrion.db.engine import get_session
 from orchestrion.db.models import Pea, Project, Recipe
 from orchestrion.mtp.model import Pea as PeaModel
+from orchestrion.api.live import registry
 from orchestrion.mtp.model import ServiceProcedure
+from orchestrion.recipe.driver import PlantStepDriver
 from orchestrion.recipe.model import (
     END, Always, And, Condition, Elapsed, MasterRecipe, Or, RecipeStep, StateReached,
     ValueThreshold,
 )
+from orchestrion.recipe.runs import RunManager, RunRecord
 from orchestrion.state.codes import ServiceState
 
 router = APIRouter(tags=["recipes"])
+
+# One run manager for the app's lifetime, like `live.registry`. main.lifespan cancels any
+# live run on exit. Runs are in-memory only — persisting history is a later increment
+# (`POL_Recipe_Engine_Design.md` §9).
+runs = RunManager()
 
 
 class RecipeSummary(BaseModel):
@@ -297,3 +305,92 @@ def update_recipe(
 def delete_recipe(project_id: int, recipe_id: int, session: Session = Depends(get_session)) -> None:
     session.delete(_row_or_404(session, project_id, recipe_id))
     session.commit()
+
+
+# ── running a recipe ────────────────────────────────────────────────────────────────
+#
+# Until now `RecipeEngine` had no production caller at all — it existed only for tests
+# (`010` §2). This is the seam that makes it reachable.
+
+
+def _run_or_404(run_id: int, project_id: int) -> RunRecord:
+    record = runs.get(run_id)
+    if record is None or record.project_id != project_id:
+        raise HTTPException(404, f"run {run_id} not found in project {project_id}")
+    return record
+
+
+@router.post("/api/projects/{project_id}/recipes/{recipe_id}/run", status_code=201,
+             responses={409: {"description": "already running, or a PEA is not connected"},
+                        422: {"description": "the recipe cannot run on this project"}})
+async def start_run(
+    project_id: int, recipe_id: int, session: Session = Depends(get_session)
+) -> dict:
+    """Bind a master recipe to the project's connected PEAs and start executing it.
+
+    Returns as soon as the run is launched — a batch can last hours (step model §11), so
+    the endpoint never awaits it. Poll `GET …/runs/{run_id}` for progress.
+
+    **`async def` is load-bearing**, not style: launching the run is `asyncio.create_task`,
+    which needs a *running* loop. FastAPI executes a sync endpoint in a threadpool, where
+    there is none — the task would never start and the coroutine would be garbage-collected
+    un-awaited. Same shape as `api/control.py`'s handlers, which drive OPC UA directly.
+    """
+    row = _row_or_404(session, project_id, recipe_id)
+    recipe = MasterRecipe.model_validate_json(row.definition)
+
+    if (live := runs.live_for_recipe(recipe_id)) is not None:
+        raise HTTPException(409, f"recipe {recipe_id} is already running (run {live.run_id})")
+
+    # Re-validate at run time, not only at save: the project's PEAs can have changed since,
+    # and starting a recipe that cannot run is worse than refusing it.
+    peas = _project_peas(session, project_id)
+    _validate_against_project(recipe, peas)
+
+    # Every PEA the recipe touches must be connected *before* the first step runs. The
+    # driver would otherwise raise mid-run and fail it — correct, but late and confusing.
+    missing = sorted({s.pea_id for s in recipe.steps if not registry.is_connected(s.pea_id)})
+    if missing:
+        raise HTTPException(409, f"connect these PEAs before running: {missing}")
+
+    driver = PlantStepDriver(registry, peas)
+    record = runs.start(
+        project_id=project_id,
+        recipe_id=recipe_id,
+        recipe=recipe,
+        driver=driver,
+        state_of=driver.state_of,
+        value_of=driver.value_of,
+    )
+    return {"run_id": record.run_id, "status": record.run.status}
+
+
+@router.get("/api/projects/{project_id}/runs/{run_id}")
+def get_run(project_id: int, run_id: int) -> dict:
+    """A run's live status, per-step states, latched final states, and event trail."""
+    return _run_or_404(run_id, project_id).to_dict()
+
+
+@router.get("/api/projects/{project_id}/runs")
+def list_runs(project_id: int) -> list[dict]:
+    """Every run this process has started for the project, newest first."""
+    return [
+        r.to_dict() for r in sorted(
+            (r for r in runs.all() if r.project_id == project_id),
+            key=lambda r: r.run_id, reverse=True,
+        )
+    ]
+
+
+@router.post("/api/projects/{project_id}/runs/{run_id}/abort")
+def abort_run(project_id: int, run_id: int) -> dict:
+    """Ask a live run to stop after its current tick.
+
+    ⚠ Commands **no PEA** — run-level propagation down to active steps is deferred
+    (step model §10: [IEC 61512-1] items 2233-2235 say the standard *"does not specify
+    propagation rules"*). Anything mid-execution keeps running, and the run's `error`
+    names it so the operator is told rather than left to find out.
+    """
+    record = _run_or_404(run_id, project_id)
+    runs.abort(run_id)
+    return {"run_id": record.run_id, "status": record.run.status}

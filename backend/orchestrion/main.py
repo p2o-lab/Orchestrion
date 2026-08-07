@@ -10,9 +10,14 @@ from orchestrion.db.engine import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()                       # create tables on first run
+    init_db()                        # create tables on first run
     yield
-    await live.registry.shutdown()  # close every persistent PEA connection on exit
+    # Runs first: a live run drives services over the very connections the registry is
+    # about to close, so cancelling it afterwards would have it writing into a dead
+    # session. Neither commands the PEAs — an aborted run leaves equipment running
+    # (step model §10), which is the same known limitation `abort` carries.
+    await recipes.runs.shutdown()
+    await live.registry.shutdown()   # close every persistent PEA connection on exit
 
 
 app = FastAPI(title="Orchestrion", version="0.1.0", lifespan=lifespan)
