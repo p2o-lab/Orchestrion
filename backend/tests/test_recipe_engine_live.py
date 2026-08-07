@@ -131,6 +131,10 @@ class Plant:
         await control.command_service(conn, service, Command.RESET)
         self.reset.append(step.id)
 
+    def is_connected(self, pea_id: int) -> bool:
+        """Production shape: the registry drops an entry the moment its health check fails."""
+        return self.registry.snapshot(pea_id) is not None
+
     def state_of(self, pea_id: int, service: str) -> str | None:
         snap = self.registry.snapshot(pea_id)
         return snap.states.get(service) if snap else None
@@ -151,6 +155,7 @@ class Plant:
             reset_step=self.reset_step,
             complete_step=self.complete_step,
             is_self_completing=self.is_self_completing,
+            is_connected=self.is_connected,
             state_of=self.state_of,
             value_of=self.value_of,
             on_event=events.append,
@@ -320,6 +325,48 @@ def test_continuous_step_is_ended_by_its_receptivity(tmp_path):
         assert p.completed == ["s1"], p.completed        # Complete sent, exactly once
         assert p.driven == ["s1", "s2"], p.driven        # s2 started only after s1 ended
         assert p.reset == ["s1", "s2"], p.reset
+        return run
+
+    _run(plant, body)
+
+
+def test_killing_a_pea_mid_run_fails_the_run(tmp_path):
+    """§11 — a PEA that drops while it holds an active step **fails** the run.
+
+    The fake proves the logic; this proves the *wiring*: `is_connected` reads
+    `registry.snapshot(id)`, and the registry's own health loop (2 s) is what removes the
+    entry when the server goes away. Before this, `state_of` simply returned `None` and the
+    run waited for ever with no indication why.
+    """
+    plant = Plant({
+        1: _aml_on_port(tmp_path, 48170, "pea1.aml"),
+        2: _aml_on_port(tmp_path, 48171, "pea2.aml"),
+    })
+
+    async def body(p: Plant):
+        recipe = MasterRecipe(
+            header=Header(name="kill-a-pea"),
+            steps=[_step("s1", 1, p.continuous), _step("s2", 2, p.self_completing)],
+            transitions=[
+                # Long enough that the step is still running when we pull the plug.
+                Transition(from_ids=["s1"], to_ids=["s2"], condition=Elapsed(seconds=60.0)),
+                Transition(from_ids=["s2"], to_ids=[END], condition=NOW),
+            ],
+        )
+        events: list[str] = []
+        task = asyncio.create_task(p.engine(recipe, events, timeout=30.0).run())
+
+        # Let s1 reach EXECUTE, then kill its PEA outright.
+        await asyncio.sleep(1.0)
+        assert p.driven == ["s1"], p.driven
+        dead = p.servers.pop(0)
+        await dead.stop()
+
+        run = await task
+        assert run.status == "failed", (run.status, run.error, events)
+        assert "lost connection to PEA 1" in run.error, run.error
+        assert "'s1'" in run.error
+        assert p.completed == [], "no Complete could have been sent to a dead PEA"
         return run
 
     _run(plant, body)

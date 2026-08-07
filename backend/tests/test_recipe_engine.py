@@ -47,6 +47,10 @@ class FakePlant:
         self._on_start = on_start
         self.continuous = continuous or set()
         """Step ids whose procedure is *continuous* — they hold EXECUTE until told to stop."""
+        self.disconnected: set[int] = set()
+        """PEA ids the POL has lost. Stated positively on purpose: an "ids still reachable"
+        set has an empty-means-all sentinel, and `{only_pea} - {dropped}` is then empty —
+        so dropping the *only* PEA read as "everything fine" and the run hung for ever."""
 
     async def drive(self, step: RecipeStep) -> None:
         self.driven.append(step.id)
@@ -65,6 +69,13 @@ class FakePlant:
     async def reset_step(self, step: RecipeStep) -> None:
         self.reset.append(step.id)
         self.states[(step.pea_id, step.service)] = ServiceState.IDLE.name
+
+    def is_connected(self, pea_id: int) -> bool:
+        return pea_id not in self.disconnected
+
+    def drop(self, pea_id: int) -> None:
+        """Simulate losing this PEA; all others stay reachable."""
+        self.disconnected.add(pea_id)
 
     def state_of(self, pea_id: int, service: str) -> str | None:
         return self.states.get((pea_id, service))
@@ -103,6 +114,7 @@ def _engine(recipe: MasterRecipe, plant: FakePlant, **kw) -> RecipeEngine:
         reset_step=plant.reset_step,
         complete_step=plant.complete_step,
         is_self_completing=plant.is_self_completing,
+        is_connected=plant.is_connected,
         state_of=plant.state_of,
         **kw,
     )
@@ -263,21 +275,144 @@ def test_abnormal_termination_fails_the_run() -> None:
         assert plant.driven == ["s1"], "a later step started after an abnormal termination"
 
 
-def test_held_does_not_fail_the_run_it_waits() -> None:
-    """§7 levels 1-2 — HELD is recoverable; the operator is meant to intervene. The run
-    must wait, not fail. (Reporting it as `held` is unit 6.)"""
+# ── unit 6: exception handling, disconnect, no global timeout ───────────────────────
+
+def test_held_is_reported_and_the_run_resumes_on_its_own() -> None:
+    """§7 levels 1-2 — HOLD *"enables operator intervention… from which the normal running
+    state can be manually resumed"*. So the run reports `held`, waits with **no clock**, and
+    picks up again by itself when the operator resumes. Nothing fails."""
     plant = FakePlant(on_start="HELD")
+    events: list[str] = []
 
     async def scenario():
-        engine = _engine(_linear(), plant, tick=0.005, timeout=0.15)
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None, on_event=events.append)
         task = asyncio.create_task(engine.run())
         await asyncio.sleep(0.05)
-        assert not task.done()
+        assert not task.done(), "a held run must not fail"
         assert plant.reset == []
+        plant.finish(1)                      # operator resumes; the step runs to completion
+        await asyncio.sleep(0.03)
+        plant.finish(2)
         return await task
 
     run = asyncio.run(scenario())
-    assert run.error == "timed out"  # waited, then hit the (unit-6) global timeout
+    assert run.status == "completed", run.error
+    assert any("recipe held" in e for e in events), events
+
+
+def test_paused_is_reported_and_held_outranks_it() -> None:
+    """PAUSE is the milder level (§7 level 1; [2658-4] §6.2.2 puts Pause at level 1 and Hold
+    at level 3), so a run with both must report the more severe one."""
+    plant = FakePlant(on_start="PAUSED")
+    events: list[str] = []
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None, on_event=events.append)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.04)
+        plant.states[(1, "Stirring")] = "HELD"      # escalates
+        await asyncio.sleep(0.04)
+        plant.finish(1)
+        await asyncio.sleep(0.03)
+        plant.finish(2)
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed", run.error
+    assert any("recipe paused" in e for e in events), events
+    assert any("recipe held" in e for e in events), events
+
+
+def test_a_disconnect_fails_the_run() -> None:
+    """§11 — losing a PEA while it holds an active step is **not** "held". HELD means the
+    state is known and an operator is intervening; a disconnect means we have lost
+    observability and cannot honestly claim to know what the service is doing."""
+    plant = FakePlant()
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.03)
+        plant.drop(1)
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "failed"
+    assert "lost connection to PEA 1" in run.error
+    assert "'s1'" in run.error
+
+
+def test_failure_names_the_siblings_it_leaves_running() -> None:
+    """§7 — run-level propagation is a later increment, so a failed batch **can leave
+    equipment running**. That is a known limitation, and the operator must be told rather
+    than left to discover it."""
+    plant = FakePlant()
+
+    async def scenario():
+        engine = _engine(_diamond(), plant, tick=0.005, timeout=None)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.02)
+        plant.finish(1)                       # s0 terminates -> sA and sB both start
+        await asyncio.sleep(0.03)
+        plant.finish(2, "ABORTED")            # branch A dies; branch B is still executing
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "failed"
+    assert "terminated abnormally: ABORTED" in run.error
+    assert "still executing (left running): ['sB']" in run.error, run.error
+
+
+def test_abort_names_what_it_leaves_running() -> None:
+    """`abort()` commands no PEA (§10 defers propagation), so say what is still going."""
+    plant = FakePlant()
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.03)
+        engine.abort()
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "aborted"
+    assert "still executing: ['s1']" in run.error, run.error
+
+
+def test_a_failing_drive_fails_the_run_instead_of_escaping() -> None:
+    """`engine.py` had no `try`/`except` at all, so a failed OPC UA write escaped `run()`
+    and the task died with no status — masked until now by the global timeout that §11
+    removes. Removing the clock without this would have made the engine *less* safe."""
+    plant = FakePlant()
+
+    async def boom(step: RecipeStep) -> None:
+        raise RuntimeError("BadTypeMismatch writing CommandExt")
+
+    engine = RecipeEngine(
+        _linear(), drive_step=boom, reset_step=plant.reset_step,
+        complete_step=plant.complete_step, is_self_completing=plant.is_self_completing,
+        is_connected=plant.is_connected, state_of=plant.state_of, tick=0.005, timeout=None,
+    )
+    run = asyncio.run(engine.run())
+    assert run.status == "failed"
+    assert "RuntimeError" in run.error and "BadTypeMismatch" in run.error
+
+
+def test_no_global_timeout_by_default() -> None:
+    """§11 — real batches run for hours; the 60 s default was what turned a deliberately
+    held batch into a false `failed`. A run with no timeout simply keeps waiting."""
+    plant = FakePlant(on_start="IDLE")        # never terminates
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.1)
+        assert not task.done(), "a run with no timeout must not fail on its own"
+        engine.abort()
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "aborted"
 
 
 # ── branch forms, under the two gates ───────────────────────────────────────────────

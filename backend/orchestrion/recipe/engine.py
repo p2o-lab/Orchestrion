@@ -34,8 +34,13 @@ So advancing over a continuous step is **two phases**: the receptivity fires and
 `COMPLETE` (the transition is *armed*), then termination is latched and the transition
 clears. An armed transition is never re-evaluated (chart §5(a)).
 
-**Still deferred:** `Always` (unit 5), held/paused *reporting* and the disconnect check
-(unit 6), and deliberate OR-branch grouping (unit 8) — each noted at its site below.
+**Exceptions are graded, not lumped together** ([IEC 61512-1] §7.4, items 2341-2369). `PAUSE`
+and `HOLD` are *recoverable* — the run reports `paused`/`held`, waits with no clock, and
+resumes on its own when the operator does. `STOP` and `ABORT` are not — the run fails. A PEA
+**disconnecting** also fails it: unlike HELD, the state is then *unknown* (§11).
+
+**Still deferred:** deliberate OR-branch grouping (unit 8), and run-level commands
+propagating down to active steps (step model §10) — each noted at its site below.
 
 Decoupled for testability: `drive_step`, `reset_step`, `state_of` and `value_of` are
 injected callbacks. **No OPC UA code here** — the engine adds orchestration logic only.
@@ -70,6 +75,10 @@ CompleteStep = Callable[[RecipeStep], Awaitable[None]]
 # on the step would let a saved recipe go stale against its own plant, and re-importing an
 # MTP could silently invalidate stored recipes. Production resolves it from the parsed `Pea`.
 IsSelfCompleting = Callable[[RecipeStep], bool]
+# Whether the POL still holds a live connection to a PEA. Production: `registry.snapshot(id)
+# is not None`. Separate from `state_of`, which returns `None` for *both* "disconnected" and
+# "no such service" — and those must not be treated alike (step model §11).
+IsConnected = Callable[[int], bool]
 # A recipe-level event message sink (the production impl records EventKind.RECIPE).
 OnEvent = Callable[[str], None]
 
@@ -101,7 +110,12 @@ class StepState(str, Enum):
 class RecipeRun:
     """The live/finished state of one recipe execution."""
 
-    status: str = "running"  # running | completed | aborted | failed
+    status: str = "running"
+    """`running` | `held` | `paused` | `completed` | `aborted` | `failed`.
+
+    **Observed, not commanded** (step model §10): `held`/`paused` are derived each pass from
+    the steps' live states and clear again on their own when the operator resumes. Only the
+    three terminal values are set once and final."""
     steps: dict[str, StepState] = field(default_factory=dict)
     """Every step that has been activated, and where it is. Steps not yet reached are absent."""
     terminal: dict[str, ServiceState] = field(default_factory=dict)
@@ -131,11 +145,12 @@ class RecipeEngine:
         reset_step: ResetStep,
         complete_step: CompleteStep,
         is_self_completing: IsSelfCompleting,
+        is_connected: IsConnected,
         state_of: StateOf,
         value_of: ValueOf | None = None,
         on_event: OnEvent | None = None,
         tick: float = 0.1,
-        timeout: float = 60.0,
+        timeout: float | None = None,
     ) -> None:
         self._recipe = recipe
         self._drive = drive_step
@@ -145,12 +160,15 @@ class RecipeEngine:
         # deadlock a continuous step forever, and guessing the other way would complete a
         # self-completing one the instant its receptivity held. Neither is safe (Rule 1).
         self._is_self_completing = is_self_completing
+        self._is_connected = is_connected
         self._state_of = state_of
         self._value_of = value_of or _no_values
         self._emit: OnEvent = on_event or (lambda _msg: None)
         self._tick = tick
-        # TODO(unit 6): default becomes None — a real batch runs for hours, and this is what
-        # turns a deliberately HELD batch into a false "failed" (step model §11).
+        # §11 — **no global timeout by default.** Real batches run for hours, ISA-88 has no
+        # such concept, and a clock on the whole run is exactly what turns a deliberately
+        # HELD batch into a false `failed`. A run ends when the chart ends it, when it is
+        # aborted, or when something actually goes wrong. Tests pass a short one explicitly.
         self._timeout = timeout
         self._aborted = False
         self._steps = {s.id: s for s in recipe.steps}
@@ -171,9 +189,35 @@ class RecipeEngine:
     def abort(self) -> None:
         """Request the run stop after the current tick (idempotent).
 
-        TODO(unit 6): this commands no PEA, so an aborted run leaves services executing.
+        ⚠ **Commands no PEA.** Run-level `PAUSE`/`HOLD`/`STOP`/`ABORT` propagating down to
+        active steps is deferred (step model §10) — [IEC 61512-1] items 2233-2235 say the
+        standard *"does not specify propagation rules"*, so it is ours to design and it is
+        not designed yet. Until then an aborted run leaves anything mid-execution running,
+        and `run.error` names it so the operator is told rather than left to discover it.
         """
         self._aborted = True
+
+    def _still_executing(self, run: RecipeRun, exclude: set[str] | None = None) -> list[str]:
+        """Steps whose service is still working — the ones a failure or abort leaves behind."""
+        skip = exclude or set()
+        return sorted(
+            sid
+            for sid, st in run.steps.items()
+            if sid not in skip and st in (StepState.RUNNING, StepState.COMPLETING)
+        )
+
+    def _with_siblings(
+        self, message: str, run: RecipeRun, exclude: set[str] | None = None
+    ) -> str:
+        """Append what this failure leaves running — step model §7.
+
+        A **known limitation, stated rather than hidden**: run-level propagation is a later
+        increment, so a failed batch can leave equipment running. The operator must be told.
+        """
+        still = self._still_executing(run, exclude)
+        if not still:
+            return message
+        return f"{message}; still executing (left running): {still}"
 
     async def run(self) -> RecipeRun:
         run = RecipeRun()
@@ -204,27 +248,43 @@ class RecipeEngine:
             self._emit(f"recipe failed: {run.error}")
             return run  # nothing has been driven; no equipment was touched
 
-        await self._activate(initial[0], run)
+        # Everything from here can touch the plant, so it runs under one guard. Without it a
+        # failed OPC UA write escapes `run()` entirely and the task dies with no status —
+        # which the (now removed) global timeout used to mask. `asyncio.CancelledError`
+        # derives from BaseException, so cancellation still propagates untouched.
+        try:
+            await self._activate(initial[0], run)
 
-        deadline = time.monotonic() + self._timeout
-        while run.unfinished and not self._aborted:
-            if time.monotonic() > deadline:
-                run.status, run.error = "failed", "timed out"
-                self._emit("recipe timed out")
-                return run
+            deadline = None if self._timeout is None else time.monotonic() + self._timeout
+            while run.unfinished and not self._aborted:
+                if deadline is not None and time.monotonic() > deadline:
+                    run.status, run.error = "failed", "timed out"
+                    self._emit("recipe timed out")
+                    return run
 
-            # Observe first, then fire: gate 1 must be settled from this pass's readings
-            # before any receptivity is evaluated against them.
-            self._observe(run)
-            if run.status == "failed":
-                return run
+                # Observe first, then fire: gate 1 must be settled from this pass's readings
+                # before any receptivity is evaluated against them.
+                self._observe(run)
+                if run.status == "failed":
+                    return run
 
-            if not await self._fire(run):
-                await asyncio.sleep(self._tick)  # nothing advanced — wait for the plant
+                if not await self._fire(run):
+                    await asyncio.sleep(self._tick)  # nothing advanced — wait for the plant
+        except Exception as exc:  # noqa: BLE001 - deliberate: see the comment above
+            run.status = "failed"
+            run.error = self._with_siblings(f"{type(exc).__name__}: {exc}", run)
+            self._emit(f"recipe failed: {run.error}")
+            return run
 
         if self._aborted:
             run.status = "aborted"
-            self._emit("recipe aborted")
+            # §7 — the operator must be told what an abort left behind. `abort()` itself
+            # commands no PEA (§10 defers run-level commands), so anything mid-execution
+            # keeps running and saying so is the least we owe them.
+            still = self._still_executing(run)
+            if still:
+                run.error = f"aborted with steps still executing: {still}"
+            self._emit(f"recipe aborted{f' — still executing: {still}' if still else ''}")
         elif not run.unfinished:
             run.status = "completed"
             self._emit(f"recipe {self._recipe.header.name!r} completed")
@@ -238,21 +298,40 @@ class RecipeEngine:
         Synchronous: `state_of` is a plain lookup against the registry snapshot, no I/O.
         """
         awaiting = (StepState.RUNNING, StepState.COMPLETING)
+        interrupted: dict[str, ServiceState] = {}
+
         for step_id in [s for s, st in run.steps.items() if st in awaiting]:
             step = self._steps[step_id]
+
+            # §11 — a PEA that drops while it holds an active step **fails the run**. Not
+            # "held": HELD means an operator is deliberately intervening and the state is
+            # *known*. A disconnect means we have lost observability of a running procedural
+            # element — it may have completed, aborted or reset while we were blind, and we
+            # cannot honestly claim to know. Checked before `state_of`, which cannot tell
+            # "disconnected" from "no such service".
+            if not self._is_connected(step.pea_id):
+                run.status = "failed"
+                run.error = self._with_siblings(
+                    f"lost connection to PEA {step.pea_id} while step {step_id!r} was running",
+                    run, exclude={step_id},
+                )
+                self._emit(f"recipe failed: {run.error}")
+                return
+
             name = self._state_of(step.pea_id, step.service)
             if name is None:
-                # No reading: the PEA is disconnected, or the service is unknown.
-                # TODO(unit 6): a disconnect must fail the run — we have lost observability
-                # of a running procedural element (step model §11). Today we keep waiting.
-                continue
+                continue  # connected, but no reading yet for this service
 
             state = ServiceState[name]
             if not is_final(state):
-                # Acting -> the PEA is working. HELD/PAUSED -> a recoverable exception that
-                # needs an *operator* command; [IEC 61512-1] items 2341-2352 say the run
-                # waits, so waiting is correct here.
-                # TODO(unit 6): report held/paused as run status rather than silently waiting.
+                # Acting -> the PEA is working, keep waiting.
+                if classify(state) is StateClass.INTERRUPTED:
+                    # §7 levels 1-2. PAUSE is "a short-term stop… that does not require any
+                    # additional shutdown or restarting actions"; HOLD "enables operator
+                    # intervention… from which the normal running state can be manually
+                    # resumed" ([61512-1] items 2341-2352). **Both are recoverable**, so the
+                    # run waits indefinitely and does not fail — but it must *say so*.
+                    interrupted[step_id] = state
                 continue
 
             # §5 — record WHICH final state, at the instant of observation. `RESET` later
@@ -267,11 +346,29 @@ class RecipeEngine:
                 # STOP/ABORT are the non-recoverable exception levels ([61512-1] items
                 # 2355-2369). Item 3450 says the parent "may" progress — deliberately open,
                 # so this is our choice (step model §7): the run fails, no further steps start.
-                # TODO(unit 6): also name every sibling step still executing.
                 run.status = "failed"
-                run.error = f"step {step_id!r} terminated abnormally: {state.name}"
+                run.error = self._with_siblings(
+                    f"step {step_id!r} terminated abnormally: {state.name}",
+                    run, exclude={step_id},
+                )
                 self._emit(f"recipe failed: {run.error}")
                 return
+
+        # §10 — run status is **observed**, derived from its steps, not commanded. When the
+        # operator resumes the service the run picks up again on its own, with no clock and
+        # nothing failed. HELD outranks PAUSED: [2658-4:2022] §6.2.2 puts Hold at level 3 and
+        # Pause at level 1, and §7 grades HOLD as the more severe intervention.
+        observed = "running"
+        if any(s is ServiceState.HELD for s in interrupted.values()):
+            observed = "held"
+        elif interrupted:
+            observed = "paused"
+        if observed != run.status:
+            detail = ", ".join(
+                f"{sid} {st.name}" for sid, st in sorted(interrupted.items())
+            )
+            self._emit(f"recipe {observed}{f': {detail}' if detail else ''}")
+        run.status = observed
 
     def _eligible(self, transition: Transition, run: RecipeRun) -> list[str] | None:
         """**Gate 1**, generalised over both procedure kinds (step model §3).
