@@ -505,6 +505,129 @@ def test_times_out_if_stuck() -> None:
     assert run.status == "failed" and run.error == "timed out"
 
 
+# ── unit 8: OR arbitration — deliberate, not incidental ─────────────────────────────
+
+def _selection(pea_id_x: int = 2, pea_id_y: int = 3) -> MasterRecipe:
+    """s0 -> either sX (first listed) or sY. Both branch guards are `Always`, so **both are
+    true at once** — which is precisely the case GRAFCET calls faulty and indeterminate, and
+    which SFC resolves by branch priority (chart §8)."""
+    return MasterRecipe(
+        header=Header(name="selection"),
+        steps=[_step("s0", 1), _step("sX", pea_id_x), _step("sY", pea_id_y)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sX"], condition=Always()),
+            Transition(from_ids=["s0"], to_ids=["sY"], condition=Always()),
+            Transition(from_ids=["sX"], to_ids=[END], condition=Always()),
+            Transition(from_ids=["sY"], to_ids=[END], condition=Always()),
+        ],
+    )
+
+
+def test_two_simultaneously_true_branches_take_exactly_one() -> None:
+    """The heart of unit 8. Both receptivities hold in the same tick; the earlier-listed
+    transition wins and the other is never taken — no indeterminacy, no double-start."""
+    plant = FakePlant(on_start="COMPLETED")
+    run = asyncio.run(_engine(_selection(), plant).run())
+    assert run.status == "completed", run.error
+    assert "sX" in plant.driven and "sY" not in plant.driven, plant.driven
+    assert run.done == {"s0", "sX"}
+
+
+def test_branch_priority_is_transition_list_order() -> None:
+    """Priority *is* the order of `MasterRecipe.transitions` — no new model field. Swap the
+    two branch transitions and the other branch wins, with nothing else changed."""
+    recipe = _selection()
+    recipe.transitions[0], recipe.transitions[1] = (
+        recipe.transitions[1], recipe.transitions[0],
+    )
+    plant = FakePlant(on_start="COMPLETED")
+    run = asyncio.run(_engine(recipe, plant).run())
+    assert run.status == "completed", run.error
+    assert "sY" in plant.driven and "sX" not in plant.driven, plant.driven
+
+
+def test_a_continuous_step_is_completed_once_when_two_branches_fire_together() -> None:
+    """Two branches off one *continuous* step with the **same** guard, both true at once.
+
+    Only one `COMPLETE` may be sent. This held before unit 8 as well — but only because
+    arming mutated the step to `COMPLETING`, which the next transition's `_eligible` then
+    rejected. Same answer, reached by side effect. Now it is the arbitration rule doing it,
+    and this test pins the guarantee rather than the accident.
+    """
+    plant = FakePlant(on_start="COMPLETED", continuous={"s0"})
+    hot = ValueThreshold(pea_id=1, value_name="Temp", op=">", threshold=80.0)
+    recipe = MasterRecipe(
+        header=Header(name="continuous-selection"),
+        steps=[_step("s0", 1), _step("sX", 2), _step("sY", 3)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sX"], condition=hot),
+            Transition(from_ids=["s0"], to_ids=["sY"], condition=hot),   # same guard!
+            Transition(from_ids=["sX"], to_ids=[END], condition=Always()),
+            Transition(from_ids=["sY"], to_ids=[END], condition=Always()),
+        ],
+    )
+    run = asyncio.run(
+        _engine(recipe, plant, value_of=lambda p, n: 95.0).run()
+    )
+    assert run.status == "completed", run.error
+    assert plant.completed == ["s0"], "Complete must be sent exactly once"
+    assert "sX" in plant.driven and "sY" not in plant.driven
+    assert run.done == {"s0", "sX"}
+
+
+def test_a_step_activated_this_pass_is_not_evaluated_until_the_next() -> None:
+    """The real behaviour change: `elapsed` can no longer be negative.
+
+    A step activated by an earlier firing used to be evaluated in that *same* pass, against
+    a `now` captured **before** it was activated — so `now - _running_since[step]` came out
+    negative. A continuous step with an always-true threshold could therefore be armed in
+    the pass that started it, having "run" for minus-a-millisecond.
+
+    Here `s1` is continuous with a guard that is already true, and `Elapsed(0.05)` on top:
+    if it were armed in its activation pass the negative elapsed would make the dwell
+    meaningless. It must run for the full 50 ms first.
+    """
+    plant = FakePlant(on_start="COMPLETED", continuous={"s1"})
+    recipe = MasterRecipe(
+        header=Header(name="same-pass"),
+        steps=[_step("s0", 1), _step("s1", 2)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["s1"], condition=Always()),
+            Transition(from_ids=["s1"], to_ids=[END], condition=Elapsed(seconds=0.05)),
+        ],
+    )
+
+    async def scenario():
+        started = asyncio.get_running_loop().time()
+        run = await _engine(recipe, plant, tick=0.005).run()
+        return run, asyncio.get_running_loop().time() - started
+
+    run, took = asyncio.run(scenario())
+    assert run.status == "completed", run.error
+    assert plant.completed == ["s1"]
+    assert took >= 0.05, took        # the dwell was measured from a real activation time
+
+
+def test_parallel_branches_still_fire_together() -> None:
+    """Arbitration must only bite on *conflict*. Two transitions with disjoint from-steps
+    are not competing, so both still fire in the same pass — otherwise every AND-divergence
+    would have been serialised."""
+    plant = FakePlant(on_start="COMPLETED")
+    recipe = MasterRecipe(
+        header=Header(name="disjoint"),
+        steps=[_step("s0", 1), _step("sA", 2), _step("sB", 3)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=Always()),
+            Transition(from_ids=["sA"], to_ids=[END], condition=Always()),
+            Transition(from_ids=["sB"], to_ids=[END], condition=Always()),
+        ],
+    )
+    run = asyncio.run(_engine(recipe, plant).run())
+    assert run.status == "completed", run.error
+    assert run.done == {"s0", "sA", "sB"}
+    assert set(plant.driven) == {"s0", "sA", "sB"}
+
+
 # ── unit 5: `Always`, and the initial-step guard ────────────────────────────────────
 
 def test_always_is_true_and_needs_no_context() -> None:

@@ -423,27 +423,40 @@ class RecipeEngine:
         return pending
 
     async def _fire(self, run: RecipeRun) -> bool:
-        """Advance every transition whose gates hold. Returns whether anything happened."""
+        """Advance every transition whose gates hold. Returns whether anything happened.
+
+        **Evaluate first, then act** — chart §8. Two things fall out of that split, and
+        neither was true while the loop evaluated and mutated in one pass:
+
+        * **OR arbitration is deliberate.** Transitions competing for the same from-step are
+          resolved by list order, and at most one fires. Previously exclusivity was an
+          *accident*: the first firing marked the step `DONE`, so a later transition's gate 1
+          incidentally failed. Working by side effect is not the same as being correct.
+        * **Nothing in a pass can enable anything else in that pass.** A step activated by an
+          earlier firing is not eligible until the next pass. Otherwise a *continuous* step
+          could be armed in the very pass that started it — sending `COMPLETE` milliseconds
+          after `START`, with a negative `elapsed` (`now` predates its activation).
+        """
         fired = False
-        # Captured once, and safe: `_terminated_at` is only written by `_observe`, which has
-        # already finished for this pass. (The previous implementation captured `now` here
-        # and wrote activation times inside the same loop, which could make elapsed negative.)
+        # Captured once. `_terminated_at` is written only by `_observe`, which has already
+        # finished for this pass, and `_running_since` only by `_activate`, which now cannot
+        # run before evaluation is complete — so `elapsed` can never come out negative.
         now = time.monotonic()
 
-        # TODO(unit 8): group a step's outgoing transitions and fire at most one, in explicit
-        # priority order (chart §8). Iteration order already *is* that priority order, since
-        # `transitions` is an ordered list; what is missing is the deliberate grouping.
+        # ── evaluate ── every transition against the state at the START of this pass, with
+        # no mutation at all. Deciding first and acting second is what makes OR arbitration
+        # deliberate rather than accidental, and it is why nothing a transition does can
+        # change whether a later one in the same pass was enabled.
+        ready: list[tuple[int, Transition, list[str] | None]] = []
         for index, transition in enumerate(self._recipe.transitions):
-            # ── phase 2 ── an armed transition awaits termination and is NEVER re-evaluated
-            # (chart §5(a)): a receptivity falling false during COMPLETING must not strand
-            # the run with no true branch.
+            # An armed transition awaits termination and is NEVER re-evaluated (chart §5(a)):
+            # a receptivity falling false during COMPLETING must not strand the run with a
+            # terminated step and no true branch.
             if index in self._armed:
                 if all(
                     run.steps.get(f) is StepState.TERMINATED for f in transition.from_ids
                 ):
-                    self._armed.discard(index)
-                    await self._advance(transition, run)
-                    fired = True
+                    ready.append((index, transition, None))
                 continue
 
             pending = self._eligible(transition, run)
@@ -464,16 +477,36 @@ class RecipeEngine:
             if not is_met(transition.condition, context):
                 continue
 
+            ready.append((index, transition, pending or None))
+
+        # ── fire ── in priority order, **at most one transition per step** (chart §8).
+        #
+        # `MasterRecipe.transitions` is an ordered list, and that order *is* the priority:
+        # the first eligible transition to claim a step wins, and every later one competing
+        # for it is skipped. Exactly one branch is taken, so an OR-divergence can never be
+        # indeterminate — which is SFC arbitration ([IEC 61131-3]), **not** GRAFCET
+        # conformance: GRAFCET requires the branch receptivities to be mutually exclusive
+        # and calls a chart that is not "faulty and indeterminate". We resolve rather than
+        # refuse, and say so (chart §8). The exclusivity *lint* stays deferred — a chart
+        # with overlapping branches still runs deterministically here, it just has a
+        # silently dead branch, which is an authoring smell rather than a safety problem.
+        consumed: set[str] = set()
+        for index, transition, pending in ready:
+            if any(f in consumed for f in transition.from_ids):
+                continue
+            consumed.update(transition.from_ids)
+
             if pending:
-                # ── phase 1 ── for a continuous step the receptivity IS the completion
-                # criterion (step model §2), so satisfying it means *ending* the step, not
-                # advancing past it. Send `COMPLETE`, arm, and wait for termination.
+                # For a continuous step the receptivity IS the completion criterion (step
+                # model §2), so satisfying it means *ending* the step, not advancing past
+                # it. Send `COMPLETE`, arm, and wait for termination.
                 for from_id in pending:
                     await self._driver.complete(self._steps[from_id])
                     run.steps[from_id] = StepState.COMPLETING
                     self._emit(f"step {from_id} completing: Complete sent")
                 self._armed.add(index)
             else:
+                self._armed.discard(index)
                 await self._advance(transition, run)
             fired = True
         return fired
