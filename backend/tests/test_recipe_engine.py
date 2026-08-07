@@ -32,17 +32,21 @@ from orchestrion.state.codes import ServiceState
 
 
 class FakePlant:
-    """A minimal stand-in for the registry + control layer.
+    """A fake `StepDriver` — a minimal stand-in for the registry + control layer.
 
-    `drive` puts a service straight into the state named by `on_start` (default EXECUTE);
+    `start` puts a service straight into the state named by `on_start` (default EXECUTE);
     `finish()` walks it to a final state, which is what the engine latches. `reset` returns
     it to IDLE, exactly as `control.ensure_idle` would.
+
+    The call-recording lists are named `driven` / `completed` / `was_reset` so none of them
+    shadows a `StepDriver` method — `self.reset = []` would silently replace `reset()` and
+    the engine's call would fail with "list is not callable".
     """
 
     def __init__(self, on_start: str = "EXECUTE", continuous: set[str] | None = None) -> None:
         self.states: dict[tuple[int, str], str] = {}
         self.driven: list[str] = []
-        self.reset: list[str] = []
+        self.was_reset: list[str] = []
         self.completed: list[str] = []
         self._on_start = on_start
         self.continuous = continuous or set()
@@ -52,26 +56,36 @@ class FakePlant:
         set has an empty-means-all sentinel, and `{only_pea} - {dropped}` is then empty —
         so dropping the *only* PEA read as "everything fine" and the run hung for ever."""
 
-    async def drive(self, step: RecipeStep) -> None:
+    # ── StepDriver: the four verbs ──────────────────────────────────────────────────
+
+    async def start(self, step: RecipeStep) -> None:
         self.driven.append(step.id)
         # A continuous procedure holds EXECUTE regardless of what `on_start` says: only an
         # explicit Complete ends it ([2658-4:2022] §6.2.3.2).
         start = "EXECUTE" if step.id in self.continuous else self._on_start
         self.states[(step.pea_id, step.service)] = start
 
-    async def complete_step(self, step: RecipeStep) -> None:
+    async def complete(self, step: RecipeStep) -> None:
         self.completed.append(step.id)
         self.states[(step.pea_id, step.service)] = ServiceState.COMPLETED.name
+
+    async def reset(self, step: RecipeStep) -> None:
+        self.was_reset.append(step.id)
+        self.states[(step.pea_id, step.service)] = ServiceState.IDLE.name
+
+    async def read_state(self, step: RecipeStep) -> ServiceState | None:
+        name = self.states.get((step.pea_id, step.service))
+        return ServiceState[name] if name else None
+
+    # ── StepDriver: the two questions ───────────────────────────────────────────────
 
     def is_self_completing(self, step: RecipeStep) -> bool:
         return step.id not in self.continuous
 
-    async def reset_step(self, step: RecipeStep) -> None:
-        self.reset.append(step.id)
-        self.states[(step.pea_id, step.service)] = ServiceState.IDLE.name
-
     def is_connected(self, pea_id: int) -> bool:
         return pea_id not in self.disconnected
+
+    # ── test controls + the snapshot lookups the receptivities use ──────────────────
 
     def drop(self, pea_id: int) -> None:
         """Simulate losing this PEA; all others stay reachable."""
@@ -108,16 +122,7 @@ def _linear(receptivity=None) -> MasterRecipe:
 def _engine(recipe: MasterRecipe, plant: FakePlant, **kw) -> RecipeEngine:
     kw.setdefault("tick", 0.001)
     kw.setdefault("timeout", 5.0)
-    return RecipeEngine(
-        recipe,
-        drive_step=plant.drive,
-        reset_step=plant.reset_step,
-        complete_step=plant.complete_step,
-        is_self_completing=plant.is_self_completing,
-        is_connected=plant.is_connected,
-        state_of=plant.state_of,
-        **kw,
-    )
+    return RecipeEngine(recipe, driver=plant, state_of=plant.state_of, **kw)
 
 
 # ── gate 1: a step is not done until a final state is latched ───────────────────────
@@ -165,7 +170,7 @@ def test_reset_is_sent_on_advance_for_every_step() -> None:
     plant = FakePlant(on_start="COMPLETED")  # self-completing, finishes immediately
     run = asyncio.run(_engine(_linear(), plant).run())
     assert run.status == "completed"
-    assert plant.reset == ["s1", "s2"], plant.reset
+    assert plant.was_reset == ["s1", "s2"], plant.was_reset
 
 
 def test_reset_is_not_sent_while_the_step_is_merely_terminated() -> None:
@@ -180,7 +185,7 @@ def test_reset_is_not_sent_while_the_step_is_merely_terminated() -> None:
         await asyncio.sleep(0.02)
         plant.finish(1)
         await asyncio.sleep(0.05)
-        assert plant.reset == [], "reset before the transition fired"
+        assert plant.was_reset == [], "reset before the transition fired"
         assert plant.states[(1, "Stirring")] == "COMPLETED"
         return await task
 
@@ -289,7 +294,7 @@ def test_held_is_reported_and_the_run_resumes_on_its_own() -> None:
         task = asyncio.create_task(engine.run())
         await asyncio.sleep(0.05)
         assert not task.done(), "a held run must not fail"
-        assert plant.reset == []
+        assert plant.was_reset == []
         plant.finish(1)                      # operator resumes; the step runs to completion
         await asyncio.sleep(0.03)
         plant.finish(2)
@@ -383,17 +388,12 @@ def test_a_failing_drive_fails_the_run_instead_of_escaping() -> None:
     """`engine.py` had no `try`/`except` at all, so a failed OPC UA write escaped `run()`
     and the task died with no status — masked until now by the global timeout that §11
     removes. Removing the clock without this would have made the engine *less* safe."""
-    plant = FakePlant()
+    class Broken(FakePlant):
+        async def start(self, step: RecipeStep) -> None:
+            raise RuntimeError("BadTypeMismatch writing CommandExt")
 
-    async def boom(step: RecipeStep) -> None:
-        raise RuntimeError("BadTypeMismatch writing CommandExt")
-
-    engine = RecipeEngine(
-        _linear(), drive_step=boom, reset_step=plant.reset_step,
-        complete_step=plant.complete_step, is_self_completing=plant.is_self_completing,
-        is_connected=plant.is_connected, state_of=plant.state_of, tick=0.005, timeout=None,
-    )
-    run = asyncio.run(engine.run())
+    plant = Broken()
+    run = asyncio.run(_engine(_linear(), plant, tick=0.005, timeout=None).run())
     assert run.status == "failed"
     assert "RuntimeError" in run.error and "BadTypeMismatch" in run.error
 
@@ -438,7 +438,7 @@ def test_parallel_split_and_join() -> None:
     assert run.status == "completed"
     assert run.done == {"s0", "sA", "sB"}
     assert plant.driven[0] == "s0" and set(plant.driven) == {"s0", "sA", "sB"}
-    assert set(plant.reset) == {"s0", "sA", "sB"}
+    assert set(plant.was_reset) == {"s0", "sA", "sB"}
 
 
 def test_join_waits_for_the_slower_branch() -> None:
@@ -613,7 +613,7 @@ def test_continuous_step_is_completed_by_its_receptivity_then_advances() -> None
     assert run.status == "completed", run.error
     assert plant.completed == ["s1"], plant.completed   # Complete sent exactly once
     assert plant.driven == ["s1", "s2"]
-    assert plant.reset == ["s1", "s2"]                  # §5 still mandatory
+    assert plant.was_reset == ["s1", "s2"]              # §5 still mandatory
 
 
 def test_an_armed_transition_is_not_re_evaluated() -> None:
@@ -639,7 +639,7 @@ def test_an_armed_transition_is_not_re_evaluated() -> None:
                 value_of=lambda p, n: temp["v"]).run()
     )
     assert run.status == "completed", run.error
-    assert plant.completed == ["s1"] and plant.reset == ["s1"]
+    assert plant.completed == ["s1"] and plant.was_reset == ["s1"]
 
 
 def test_elapsed_on_a_continuous_step_is_a_duration_from_start() -> None:

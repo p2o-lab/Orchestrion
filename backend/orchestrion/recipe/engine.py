@@ -42,43 +42,74 @@ resumes on its own when the operator does. `STOP` and `ABORT` are not — the ru
 **Still deferred:** deliberate OR-branch grouping (unit 8), and run-level commands
 propagating down to active steps (step model §10) — each noted at its site below.
 
-Decoupled for testability: `drive_step`, `reset_step`, `state_of` and `value_of` are
-injected callbacks. **No OPC UA code here** — the engine adds orchestration logic only.
+Decoupled for testability: the engine is handed a `StepDriver` (act on / ask about a step's
+service) plus `state_of` / `value_of` (read the live snapshot, for receptivities).
+**No OPC UA code here** — the engine adds orchestration logic only; tests pass a fake.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Protocol
 
 from orchestrion.recipe.conditions import EvalContext, StateOf, ValueOf, is_met
 from orchestrion.recipe.model import END, MasterRecipe, RecipeStep, Transition
 from orchestrion.state.classification import StateClass, classify, is_final
 from orchestrion.state.codes import ServiceState
 
-# Start a step on its PEA. The production impl runs pre-flight (`control.ensure_idle`),
-# `control.start_service`, then `control.await_started`.
-DriveStep = Callable[[RecipeStep], Awaitable[None]]
-# Return a finished step's service to IDLE. [IEC 61512-1] Table B.2 makes this mandatory:
-# RESETTING "always becomes active between executions of the Process-oriented task".
-ResetStep = Callable[[RecipeStep], Awaitable[None]]
-# End a *continuous* step. [2658-4:2022] §6.2.3.2: "For continuous procedures, the Complete
-# command to terminate the service is sent to the PEA by the POL or the operator."
-CompleteStep = Callable[[RecipeStep], Awaitable[None]]
-# Whether a step's procedure ends by itself — [2658-4:2022] Table 36 #4b `IsSelfCompleting`.
-#
-# Injected rather than stored on `RecipeStep`, deliberately: `RecipeStep` is the *persisted*
-# wire model, and the kind is a property of the **PEA's MTP**, not of the recipe. Putting it
-# on the step would let a saved recipe go stale against its own plant, and re-importing an
-# MTP could silently invalidate stored recipes. Production resolves it from the parsed `Pea`.
-IsSelfCompleting = Callable[[RecipeStep], bool]
-# Whether the POL still holds a live connection to a PEA. Production: `registry.snapshot(id)
-# is not None`. Separate from `state_of`, which returns `None` for *both* "disconnected" and
-# "no such service" — and those must not be treated alike (step model §11).
-IsConnected = Callable[[int], bool]
+class StepDriver(Protocol):
+    """Everything the engine needs to **act on** or **ask about** one step's service.
+
+    One injected collaborator rather than a fistful of callables. The engine still owns no
+    OPC UA code — it holds no connection, no `Service`, no parsed `Pea` — but these four
+    verbs and two questions are all facets of the same thing, and passing them separately
+    made that harder to see, not easier. Production: `recipe/driver.py`; tests pass a fake.
+    """
+
+    async def start(self, step: RecipeStep) -> None:
+        """Pre-flight, start, and wait until the service has left IDLE.
+
+        Production: `control.ensure_idle` -> `control.start_service` -> `control.await_started`
+        (step model §2/§4). Must return only once the step is genuinely under way.
+        """
+
+    async def complete(self, step: RecipeStep) -> None:
+        """End a *continuous* step — [2658-4:2022] §6.2.3.2: *"the Complete command to
+        terminate the service is sent to the PEA by the POL or the operator."*"""
+
+    async def reset(self, step: RecipeStep) -> None:
+        """Return a finished step's service to IDLE. [IEC 61512-1] Table B.2 makes this
+        mandatory: RESETTING *"always becomes active between executions."*"""
+
+    async def read_state(self, step: RecipeStep) -> "ServiceState | None":
+        """This step's service state, **fresh enough to latch on** (step model §5).
+
+        ⚠ Deliberately **not** the same source as `state_of`. `state_of` reads the live
+        snapshot — a subscription cache — which is right for evaluating a receptivity but
+        **not** for deciding a step has terminated: on a *reused* service the cache can still
+        hold the previous execution's `COMPLETED`, and the latch cannot be fresher than its
+        source. Production does a direct read; how it answers is the driver's business.
+
+        `None` means "no reading". Disconnection is `is_connected`, deliberately separate.
+        """
+
+    def is_self_completing(self, step: RecipeStep) -> bool:
+        """[2658-4:2022] Table 36 #4b `IsSelfCompleting`, resolved from the PEA's MTP.
+
+        Asked rather than stored on `RecipeStep`, deliberately: that is the *persisted* wire
+        model, and the kind is a property of the **plant**, not of the recipe. Storing it
+        would let a saved recipe go stale, and an MTP re-import silently invalidate it.
+        """
+
+    def is_connected(self, pea_id: int) -> bool:
+        """Whether the POL still holds a live connection. Separate from a `None` state,
+        which means *both* "disconnected" and "no such service" (step model §11)."""
+
+
 # A recipe-level event message sink (the production impl records EventKind.RECIPE).
 OnEvent = Callable[[str], None]
 
@@ -141,11 +172,7 @@ class RecipeEngine:
         self,
         recipe: MasterRecipe,
         *,
-        drive_step: DriveStep,
-        reset_step: ResetStep,
-        complete_step: CompleteStep,
-        is_self_completing: IsSelfCompleting,
-        is_connected: IsConnected,
+        driver: StepDriver,
         state_of: StateOf,
         value_of: ValueOf | None = None,
         on_event: OnEvent | None = None,
@@ -153,14 +180,11 @@ class RecipeEngine:
         timeout: float | None = None,
     ) -> None:
         self._recipe = recipe
-        self._drive = drive_step
-        self._reset = reset_step
-        self._complete = complete_step
-        # Required, not defaulted: guessing "self-completing" for an unknown procedure would
-        # deadlock a continuous step forever, and guessing the other way would complete a
-        # self-completing one the instant its receptivity held. Neither is safe (Rule 1).
-        self._is_self_completing = is_self_completing
-        self._is_connected = is_connected
+        self._driver = driver
+        # `state_of` / `value_of` stay outside the driver on purpose: they feed
+        # `conditions.is_met`, which is **pure and synchronous** so it stays trivially
+        # testable. They read the live snapshot; the driver reads the plant. See
+        # `StepDriver.read_state` for why that difference matters at the latch.
         self._state_of = state_of
         self._value_of = value_of or _no_values
         self._emit: OnEvent = on_event or (lambda _msg: None)
@@ -264,7 +288,7 @@ class RecipeEngine:
 
                 # Observe first, then fire: gate 1 must be settled from this pass's readings
                 # before any receptivity is evaluated against them.
-                self._observe(run)
+                await self._observe(run)
                 if run.status == "failed":
                     return run
 
@@ -292,10 +316,11 @@ class RecipeEngine:
 
     # ── the two gates ───────────────────────────────────────────────────────────────
 
-    def _observe(self, run: RecipeRun) -> None:
+    async def _observe(self, run: RecipeRun) -> None:
         """Latch any running step that has reached a Final State — **gate 1**.
 
-        Synchronous: `state_of` is a plain lookup against the registry snapshot, no I/O.
+        Asynchronous because it reads the **plant**, not the snapshot cache: the latch is
+        only as trustworthy as the reading behind it (`StepDriver.read_state`).
         """
         awaiting = (StepState.RUNNING, StepState.COMPLETING)
         interrupted: dict[str, ServiceState] = {}
@@ -309,7 +334,7 @@ class RecipeEngine:
             # element — it may have completed, aborted or reset while we were blind, and we
             # cannot honestly claim to know. Checked before `state_of`, which cannot tell
             # "disconnected" from "no such service".
-            if not self._is_connected(step.pea_id):
+            if not self._driver.is_connected(step.pea_id):
                 run.status = "failed"
                 run.error = self._with_siblings(
                     f"lost connection to PEA {step.pea_id} while step {step_id!r} was running",
@@ -318,11 +343,11 @@ class RecipeEngine:
                 self._emit(f"recipe failed: {run.error}")
                 return
 
-            name = self._state_of(step.pea_id, step.service)
-            if name is None:
-                continue  # connected, but no reading yet for this service
+            # A direct read of the plant, not the snapshot — see `StepDriver.read_state`.
+            state = await self._driver.read_state(step)
+            if state is None:
+                continue  # connected, but no reading for this service
 
-            state = ServiceState[name]
             if not is_final(state):
                 # Acting -> the PEA is working, keep waiting.
                 if classify(state) is StateClass.INTERRUPTED:
@@ -389,7 +414,7 @@ class RecipeEngine:
             state = run.steps.get(from_id)
             if state is StepState.TERMINATED:
                 continue
-            if state is StepState.RUNNING and not self._is_self_completing(
+            if state is StepState.RUNNING and not self._driver.is_self_completing(
                 self._steps[from_id]
             ):
                 pending.append(from_id)
@@ -444,7 +469,7 @@ class RecipeEngine:
                 # criterion (step model §2), so satisfying it means *ending* the step, not
                 # advancing past it. Send `COMPLETE`, arm, and wait for termination.
                 for from_id in pending:
-                    await self._complete(self._steps[from_id])
+                    await self._driver.complete(self._steps[from_id])
                     run.steps[from_id] = StepState.COMPLETING
                     self._emit(f"step {from_id} completing: Complete sent")
                 self._armed.add(index)
@@ -459,7 +484,7 @@ class RecipeEngine:
             # §5 / §12 item 0a — RESET on advance, not on termination. Until this moment the
             # service sat in its final state, which is what makes a terminated-but-not-yet-
             # advanced step visible on the PEA rather than only in our own run state.
-            await self._reset(self._steps[from_id])
+            await self._driver.reset(self._steps[from_id])
             run.steps[from_id] = StepState.DONE
 
         # Emitted between deactivating the predecessors and activating the successors,
@@ -483,4 +508,4 @@ class RecipeEngine:
             f"step {step_id} started: {step.service} / procedure {step.procedure_id} "
             f"on PEA {step.pea_id}"
         )
-        await self._drive(step)
+        await self._driver.start(step)

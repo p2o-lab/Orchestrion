@@ -29,6 +29,7 @@ from pathlib import Path
 from orchestrion.mtp.parser import read_mtp
 from orchestrion.opcua import control
 from orchestrion.opcua.registry import PeaRegistry
+from orchestrion.recipe.driver import PlantStepDriver
 from orchestrion.recipe.engine import RecipeEngine
 from orchestrion.recipe.model import (
     END,
@@ -61,23 +62,45 @@ def _aml_on_port(tmp_path: Path, port: int, name: str) -> Path:
     return dst
 
 
+class RecordingDriver(PlantStepDriver):
+    """The **production** driver, with the calls recorded.
+
+    Subclassed rather than reimplemented on purpose: these tests are the only thing that
+    exercises `recipe/driver.py` end to end, so they must run the real resolution and the
+    real `control.*` sequences — not a parallel copy of them that could drift.
+    """
+
+    def __init__(self, registry: PeaRegistry, peas: dict[int, object]) -> None:
+        super().__init__(registry, peas)
+        self.driven: list[str] = []
+        self.completed: list[str] = []
+        self.was_reset: list[str] = []
+
+    async def start(self, step: RecipeStep) -> None:
+        await super().start(step)
+        self.driven.append(step.id)
+
+    async def complete(self, step: RecipeStep) -> None:
+        await super().complete(step)
+        self.completed.append(step.id)
+
+    async def reset(self, step: RecipeStep) -> None:
+        await super().reset(step)
+        self.was_reset.append(step.id)
+
+
 class Plant:
-    """N VirtualPEA instances in one registry, with production-shaped callbacks."""
+    """N VirtualPEA instances in one registry, driven by the production `StepDriver`."""
 
     def __init__(self, amls: dict[int, Path]) -> None:
         self._amls = amls
         self.servers: list[VirtualPEA] = []
         self.registry = PeaRegistry()
+        self.peas: dict[int, object] = {}
         self.services: dict[int, dict[str, object]] = {}
-        self.driven: list[str] = []
-        self.reset: list[str] = []
-        self.completed: list[str] = []
         self.self_completing: int = 0
         self.continuous: int = 0
-        self.kinds: dict[int, dict[int, bool]] = {}
-        """pea_id -> procedure_id -> IsSelfCompleting, straight off the parsed MTP
-        ([2658-4:2022] Table 36 #4b). This is the production shape of the engine's
-        `is_self_completing` callback."""
+        self.driver: RecordingDriver | None = None
 
     async def start(self) -> None:
         for pea_id, aml in self._amls.items():
@@ -87,77 +110,43 @@ class Plant:
             self.servers.append(server)
             pea = read_mtp(aml)
             await self.registry.connect(pea_id, pea)
+            self.peas[pea_id] = pea
             self.services[pea_id] = {sv.name: sv for sv in pea.services}
             stirring = pea.services[0]
-            self.kinds[pea_id] = {
-                p.procedure_id: p.is_self_completing for p in stirring.procedures
-            }
             self.self_completing = next(
                 p.procedure_id for p in stirring.procedures if p.is_self_completing
             )
             self.continuous = next(
                 p.procedure_id for p in stirring.procedures if not p.is_self_completing
             )
+        self.driver = RecordingDriver(self.registry, self.peas)
 
     async def stop(self) -> None:
         await self.registry.shutdown()
         for server in self.servers:
             await server.stop()
 
-    async def drive(self, step: RecipeStep) -> None:
-        """Exactly the sequence step model §2 specifies: handshake + pre-flight, start,
-        await-started."""
-        conn = self.registry.connection(step.pea_id)
-        service = self.services[step.pea_id][step.service]
-        await control.ensure_idle(conn, service)
-        await control.start_service(conn, service, step.procedure_id, step.params)
-        await control.await_started(conn, service)
-        self.driven.append(step.id)
+    # Convenience passthroughs so the assertions stay readable.
+    @property
+    def driven(self) -> list[str]:
+        return self.driver.driven
 
-    async def complete_step(self, step: RecipeStep) -> None:
-        """[2658-4:2022] §6.2.3.2 — end a continuous procedure. `command_service` runs the
-        mode handshake and unit 2's `CommandEn` guard, so a refused Complete raises."""
-        conn = self.registry.connection(step.pea_id)
-        service = self.services[step.pea_id][step.service]
-        await control.command_service(conn, service, Command.COMPLETE)
-        self.completed.append(step.id)
+    @property
+    def completed(self) -> list[str]:
+        return self.driver.completed
 
-    def is_self_completing(self, step: RecipeStep) -> bool:
-        return self.kinds[step.pea_id][step.procedure_id]
-
-    async def reset_step(self, step: RecipeStep) -> None:
-        conn = self.registry.connection(step.pea_id)
-        service = self.services[step.pea_id][step.service]
-        await control.command_service(conn, service, Command.RESET)
-        self.reset.append(step.id)
-
-    def is_connected(self, pea_id: int) -> bool:
-        """Production shape: the registry drops an entry the moment its health check fails."""
-        return self.registry.snapshot(pea_id) is not None
-
-    def state_of(self, pea_id: int, service: str) -> str | None:
-        snap = self.registry.snapshot(pea_id)
-        return snap.states.get(service) if snap else None
-
-    def value_of(self, pea_id: int, name: str) -> float | None:
-        snap = self.registry.snapshot(pea_id)
-        if snap is None:
-            return None
-        raw = snap.values.get(name)
-        return float(raw) if isinstance(raw, (int, float)) else None
+    @property
+    def was_reset(self) -> list[str]:
+        return self.driver.was_reset
 
     def engine(self, recipe: MasterRecipe, events: list[str], **kw) -> RecipeEngine:
         kw.setdefault("tick", 0.1)
         kw.setdefault("timeout", 40.0)
         return RecipeEngine(
             recipe,
-            drive_step=self.drive,
-            reset_step=self.reset_step,
-            complete_step=self.complete_step,
-            is_self_completing=self.is_self_completing,
-            is_connected=self.is_connected,
-            state_of=self.state_of,
-            value_of=self.value_of,
+            driver=self.driver,
+            state_of=self.driver.state_of,
+            value_of=self.driver.value_of,
             on_event=events.append,
             **kw,
         )
@@ -201,7 +190,7 @@ def test_linear_recipe_across_two_peas(tmp_path):
         assert run.status == "completed", (run.status, run.error, events)
         assert run.done == {"s1", "s2"}
         assert p.driven == ["s1", "s2"], p.driven
-        assert p.reset == ["s1", "s2"], p.reset          # §5 — RESET is mandatory
+        assert p.was_reset == ["s1", "s2"], p.was_reset   # §5 — RESET is mandatory
         # No service left running: both were reset, so both are back at IDLE.
         for pea_id in (1, 2):
             conn = p.registry.connection(pea_id)
@@ -241,10 +230,10 @@ def test_two_consecutive_steps_on_one_pea(tmp_path):
         run = await p.engine(recipe, events).run()
         assert run.status == "completed", (run.status, run.error, events)
         assert run.done == {"s1", "s2"}
-        # Both steps were genuinely started — `drive` only appends after `await_started`
+        # Both steps were genuinely started — `start` only records after `await_started`
         # returned, and `start_service` would have raised had the command been refused.
         assert p.driven == ["s1", "s2"], p.driven
-        assert p.reset == ["s1", "s2"], p.reset
+        assert p.was_reset == ["s1", "s2"], p.was_reset
         return run
 
     _run(plant, body)
@@ -275,7 +264,7 @@ def test_parallel_branches_across_three_peas(tmp_path):
         assert run.done == {"s0", "sA", "sB"}
         assert p.driven[0] == "s0"
         assert set(p.driven) == {"s0", "sA", "sB"}
-        assert set(p.reset) == {"s0", "sA", "sB"}
+        assert set(p.was_reset) == {"s0", "sA", "sB"}
         return run
 
     _run(plant, body)
@@ -324,7 +313,7 @@ def test_continuous_step_is_ended_by_its_receptivity(tmp_path):
         assert run.status == "completed", (run.status, run.error, events)
         assert p.completed == ["s1"], p.completed        # Complete sent, exactly once
         assert p.driven == ["s1", "s2"], p.driven        # s2 started only after s1 ended
-        assert p.reset == ["s1", "s2"], p.reset
+        assert p.was_reset == ["s1", "s2"], p.was_reset
         return run
 
     _run(plant, body)
