@@ -9,10 +9,15 @@ import { describe, expect, it } from 'vitest'
 
 import type { Condition, MasterRecipe } from '../api/types'
 import {
+  BRANCH_GAP_Y,
+  BRANCH_OFFSET_X,
   END_ID,
   MIN_BAR_HEIGHT,
   barSpans,
+  branchActionFor,
+  branchSpawnPosition,
   defaultCondition,
+  selectionBranchMayDefault,
   graphToSteps,
   graphToTransitions,
   initialStepId,
@@ -339,5 +344,73 @@ describe('transitions are placed, not stored (§9)', () => {
     const tr = recipeToGraph(recipe).nodes.find((n) => n.kind === 'transition')!
     expect(tr.x).toBeUndefined()
     expect(tr.y).toBeUndefined()
+  })
+})
+
+describe('branch authoring — chart §7', () => {
+  const at = (entries: [string, number, number][]) =>
+    new Map(entries.map(([id, x, y]) => [id, { x, y }]))
+
+  describe('each action hangs off exactly one node kind', () => {
+    it('a transition opens a PARALLEL branch — §6.2.6, one transition to several steps', () => {
+      expect(branchActionFor('transition')).toBe('parallel')
+    })
+
+    it('a step opens a SELECTION branch — §6.2.3, one step to several transitions', () => {
+      expect(branchActionFor('step')).toBe('selection')
+    })
+
+    it('nothing selected offers nothing', () => {
+      expect(branchActionFor(null)).toBeNull()
+      expect(branchActionFor(undefined)).toBeNull()
+    })
+  })
+
+  describe('placement stacks branches downward', () => {
+    it('puts a first branch to the right of its owner', () => {
+      const pos = branchSpawnPosition('t1', [], at([['t1', 100, 50]]))
+      expect(pos).toEqual({ x: 100 + BRANCH_OFFSET_X, y: 50 })
+    })
+
+    it('puts the next one below the lowest sibling, not on top of it', () => {
+      const edges = [link('t1', 's2'), link('t1', 's3')]
+      const pos = branchSpawnPosition('t1', edges, at([['t1', 100, 50], ['s2', 300, 0], ['s3', 300, 140]]))
+      expect(pos).toEqual({ x: 300, y: 140 + BRANCH_GAP_Y })
+    })
+
+    it('ignores links that are not the owner’s own outgoing ones', () => {
+      const edges = [link('t1', 's2'), link('tOther', 's9')]
+      const pos = branchSpawnPosition('t1', edges, at([['t1', 0, 0], ['s2', 200, 0], ['s9', 200, 900]]))
+      expect(pos).toEqual({ x: 200, y: 0 + BRANCH_GAP_Y })
+    })
+
+    it('falls back to the origin when the owner has no known position', () => {
+      expect(branchSpawnPosition('ghost', [], at([]))).toEqual({ x: BRANCH_OFFSET_X, y: 0 })
+    })
+
+    it('ignores a sibling whose position is unknown rather than crashing', () => {
+      const edges = [link('s1', 't1'), link('s1', 't2')]
+      const pos = branchSpawnPosition('s1', edges, at([['s1', 0, 0], ['t1', 150, 60]]))
+      expect(pos).toEqual({ x: 150, y: 60 + BRANCH_GAP_Y })
+    })
+  })
+
+  describe('a new selection branch does not default to Always', () => {
+    it('allows a default when the step has no outgoing transition yet', () => {
+      // The first transition off a step is a plain series, not a selection — the usual
+      // `defaultCondition` rules apply there (chart §4).
+      expect(selectionBranchMayDefault('s1', [])).toBe(true)
+    })
+
+    it('REFUSES once the step already branches', () => {
+      // §6.2.3's NOTE puts exclusivity on the designer ("muss"), and under §8's priority
+      // arbitration a branch whose sibling is constantly true can never fire. Defaulting the
+      // new one to `Always` would author a provably dead branch.
+      expect(selectionBranchMayDefault('s1', [link('s1', 't1')])).toBe(false)
+    })
+
+    it('counts only that step’s own outgoing links', () => {
+      expect(selectionBranchMayDefault('s1', [link('s2', 't1'), link('t9', 's1')])).toBe(true)
+    })
   })
 })

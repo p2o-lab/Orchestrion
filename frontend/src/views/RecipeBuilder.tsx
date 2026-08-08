@@ -19,15 +19,19 @@ import { api } from '../api/client'
 import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeHeader, RecipeStep } from '../api/types'
 import {
   barSpans,
+  branchSpawnPosition,
   defaultCondition,
   graphToTransitions,
   initialStepId,
   isPitTransition,
   recipeToGraph,
+  selectionBranchMayDefault,
   transitionPositions,
   type BarSpan,
+  type BranchAction,
   type GraphEdge,
   type GraphNode,
+  type NodeKind,
 } from '../ui/recipeGraph'
 // `summarize` moved to `ui/conditions.ts` at unit 11a — it must recurse now that compounds
 // are authorable, and the tree logic is pure and tested there.
@@ -93,6 +97,10 @@ export function RecipeBuilder() {
   const [rf, setRf] = useState<ReactFlowInstance | null>(null)
   const [showMiniMap, setShowMiniMap] = useState(true)
   const dropPos = useRef<{ x: number; y: number } | null>(null)
+  /** Set by `addParallelBranch`, consumed by `addStep`: the transition the step being picked
+   *  is a parallel branch of. A ref, not state, because it must survive the picker modal
+   *  without re-rendering the canvas. */
+  const branchFrom = useRef<string | null>(null)
   const seeded = useRef(false)
 
   useEffect(() => {
@@ -265,6 +273,11 @@ export function RecipeBuilder() {
     const id = nextStepId(nodes.filter((n) => n.type === 'step').map((n) => n.id))
     const position = dropPos.current ?? { x: 300, y: 160 }
     dropPos.current = null
+    // Set by `addParallelBranch`: the transition this new step is a branch of. Consumed here
+    // because a step cannot exist until the picker has bound it to a procedure (§7 — the
+    // action builds the *wiring*, it does not invent a node type).
+    const from = branchFrom.current
+    branchFrom.current = null
     setNodes((ns) => [
       ...ns,
       {
@@ -275,6 +288,7 @@ export function RecipeBuilder() {
         } satisfies StepNodeData,
       },
     ])
+    if (from) setEdges((es) => [...es, arrow(from, id, `e-${from}-${id}-${Date.now()}`)])
     setSaved(false)
   }
   /** Drop a bare transition. It has no receptivity until a step is wired into it — only then
@@ -283,6 +297,58 @@ export function RecipeBuilder() {
     const id = `${kind}-${Date.now()}`
     setNodes((ns) => [...ns, { id, type: kind, position, data: { isPit: true } satisfies TransitionNodeData }])
     setSaved(false)
+  }
+
+  // ── branch actions — chart §7 ─────────────────────────────────────────────────────────
+  //
+  // Neither action creates a node *type*: `parallel` adds a step, `selection` adds a
+  // transition, and each adds one link. Alternation (§4.4) therefore holds by construction —
+  // a transition can only spawn a step, a step can only spawn a transition.
+
+  const livePositions = useCallback(
+    () => new Map(nodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }])),
+    [nodes],
+  )
+
+  /** AND — [IEC 60848:2013] §6.2.6, one transition activating several sequences in parallel.
+   *  Opens the step picker, because a step is meaningless until it is bound to a procedure;
+   *  `branchFrom` carries the link across the modal. */
+  function addParallelBranch(transitionId: string) {
+    branchFrom.current = transitionId
+    dropPos.current = branchSpawnPosition(transitionId, edges.map(toGraphEdge), livePositions())
+    setAdding(true)
+  }
+
+  /** OR — §6.2.3, a step offering "as many simultaneously enabled transitions as possible
+   *  evolutions". The new transition is a pit until it is wired onward (§3). */
+  function addSelectionBranch(stepId: string) {
+    const graphEdges = edges.map(toGraphEdge)
+    const position = branchSpawnPosition(stepId, graphEdges, livePositions())
+    const id = `transition-${Date.now()}`
+    // A second branch never defaults to `Always`: its sibling would always win, so the branch
+    // could never fire (§6.2.3's exclusivity duty, read through §8's priority arbitration).
+    const condition = selectionBranchMayDefault(stepId, graphEdges)
+      ? defaultCondition([stepId], stepIsSelfCompleting)
+      : null
+    setNodes((ns) => [
+      ...ns,
+      {
+        id, type: 'transition', position,
+        data: (condition
+          ? { condition, label: summarize(condition), isPit: true }
+          : { isPit: true, needsCondition: true }) satisfies TransitionNodeData,
+      },
+    ])
+    setEdges((es) => [...es, arrow(stepId, id, `e-${stepId}-${id}-${Date.now()}`)])
+    setSaved(false)
+  }
+
+  function onBranch(action: BranchAction) {
+    const sel = nodes.filter((n) => n.selected)
+    if (sel.length !== 1) return
+    const node = sel[0]
+    if (action === 'parallel' && node.type === 'transition') addParallelBranch(node.id)
+    else if (action === 'selection' && node.type === 'step') addSelectionBranch(node.id)
   }
 
   // Palette: click drops in the middle; drag drops where released.
@@ -360,7 +426,18 @@ export function RecipeBuilder() {
         </div>
       </div>
 
-      {recipe && peas && <NodePalette onQuickAdd={onQuickAdd} />}
+      {recipe && peas && (
+        <NodePalette
+          onQuickAdd={onQuickAdd}
+          // Exactly one selection, or the action has no unambiguous owner.
+          selectedKind={
+            nodes.filter((n) => n.selected).length === 1
+              ? ((nodes.find((n) => n.selected)!.type ?? null) as NodeKind | null)
+              : null
+          }
+          onBranch={onBranch}
+        />
+      )}
       <div className="relative flex-1" onDrop={onDrop} onDragOver={onDragOver}>
         {recipe === null || peas === null ? (
           <div className="grid h-full place-items-center">

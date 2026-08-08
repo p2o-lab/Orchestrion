@@ -306,6 +306,80 @@ export function barSpans(
   return bars
 }
 
+// ── branch authoring — chart §7 ───────────────────────────────────────────────────────────
+
+/**
+ * The two ways to open a branch. Each hangs off exactly one node kind, and that is not a UI
+ * preference — it follows from what the two structures *are*:
+ *
+ *   • `parallel`  — one transition, several succeeding **steps**. [IEC 60848:2013] §6.2.6
+ *     "Activation of parallel sequences": the synchronization symbol "is used in this structure
+ *     to indicate the simultaneous activity of several sequences". Only a **transition** can
+ *     open one, because only a transition may precede several steps (Table 2 [9]).
+ *   • `selection` — one step, several succeeding **transitions**. §6.2.3: a selection "is
+ *     represented by as many simultaneously enabled transitions as possible evolutions". Only a
+ *     **step** can open one.
+ *
+ * Both preserve §4.4's alternation by construction — a transition spawns a step, a step spawns
+ * a transition — so the palette cannot be used to build an illegal chart.
+ */
+export type BranchAction = 'parallel' | 'selection'
+
+/** Which branch action the selected node admits, or `null` when nothing usable is selected. */
+export function branchActionFor(kind: NodeKind | null | undefined): BranchAction | null {
+  if (kind === 'transition') return 'parallel'
+  if (kind === 'step') return 'selection'
+  return null
+}
+
+/** How far a new branch is placed from its siblings. Flow runs left→right, so branches stack
+ *  in **y** and a new one lands below the lowest existing sibling. */
+export const BRANCH_GAP_Y = 110
+/** How far right of its owner a *first* branch is placed, when there are no siblings yet. */
+export const BRANCH_OFFSET_X = 190
+
+/**
+ * Where to drop the node a branch action creates.
+ *
+ * Below the lowest sibling already leaving `ownerId` — so repeated clicks stack downward
+ * instead of piling up — and to the right of the owner when there is no sibling yet. Pure, so
+ * the placement is testable without a canvas; React Flow supplies the live positions, exactly
+ * as it does for `barSpans`.
+ */
+export function branchSpawnPosition(
+  ownerId: string,
+  edges: GraphEdge[],
+  positions: Map<string, { x: number; y: number }>,
+): { x: number; y: number } {
+  const owner = positions.get(ownerId) ?? { x: 0, y: 0 }
+  const siblings = edges
+    .filter((e) => e.source === ownerId)
+    .map((e) => positions.get(e.target))
+    .filter((p): p is { x: number; y: number } => p !== undefined)
+
+  if (siblings.length === 0) return { x: owner.x + BRANCH_OFFSET_X, y: owner.y }
+  return {
+    x: Math.max(...siblings.map((p) => p.x)),
+    y: Math.max(...siblings.map((p) => p.y)) + BRANCH_GAP_Y,
+  }
+}
+
+/**
+ * May a **new** selection branch off this step default to `Always`?
+ *
+ * No, once the step already has an outgoing transition. §6.2.3's NOTE makes exclusivity the
+ * designer's duty — [DIN EN 60848:2014-12] "Der Entwickler **muss** sicherstellen, dass die
+ * Transitionsbedingungen … untereinander exklusiv sind" — and under the priority arbitration of
+ * chart §8 a branch whose sibling is constantly true **can never fire**. Defaulting it to
+ * `Always` would author a provably dead branch, so it is left blank and flagged instead.
+ *
+ * This is narrower than §8's deferred exclusivity *lint*: no overlap is detected here, we
+ * simply decline to write a receptivity we know is wrong.
+ */
+export function selectionBranchMayDefault(stepId: string, edges: GraphEdge[]): boolean {
+  return edges.filter((e) => e.source === stepId).length === 0
+}
+
 /** Rebuild the persisted steps from the canvas, keeping their positions. */
 export function graphToSteps(nodes: GraphNode[]): RecipeStep[] {
   return nodes
