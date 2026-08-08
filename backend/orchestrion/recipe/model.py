@@ -131,17 +131,27 @@ class Elapsed(BaseModel):
 
 
 class And(BaseModel):
-    """All sub-conditions hold."""
+    """All sub-conditions hold.
+
+    `min_length=1`: `all([])` is **True**, so an empty `And` would be a silent `Always` —
+    including on a continuous step's transition, where `Always` is forbidden precisely
+    because it completes the service the instant it starts.
+    """
 
     type: Literal["And"] = "And"
-    conditions: list["Condition"]
+    conditions: list["Condition"] = Field(min_length=1)
 
 
 class Or(BaseModel):
-    """At least one sub-condition holds."""
+    """At least one sub-condition holds.
+
+    `min_length=1`: `any([])` is **False**, so an empty `Or` is a receptivity that can
+    never hold — a run that waits for ever, with no global timeout to bound it
+    (`POL_Step_Model_ISA88.md` §11).
+    """
 
     type: Literal["Or"] = "Or"
-    conditions: list["Condition"]
+    conditions: list["Condition"] = Field(min_length=1)
 
 
 # The condition on a transition — discriminated on `type` (robust vs. field-guessing).
@@ -196,6 +206,12 @@ class MasterRecipe(BaseModel):
                     raise ValueError(f"transition to unknown step id {dst!r}")
             if not t.from_ids or not t.to_ids:
                 raise ValueError("a transition needs at least one from-step and one to-step")
+            # A repeated endpoint is always an authoring mistake, and not a harmless one:
+            # a duplicated `from_id` would have the engine `RESET` the same service twice
+            # when the transition clears.
+            for side, ids in (("from_ids", t.from_ids), ("to_ids", t.to_ids)):
+                if len(set(ids)) != len(ids):
+                    raise ValueError(f"transition {side} contains a duplicate: {ids}")
         return self
 
 

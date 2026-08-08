@@ -114,38 +114,51 @@ class RunManager:
         run_id = self._next_id
         self._next_id += 1
 
+        # The event sink has to exist before the engine, and the record before neither —
+        # so the list is created first and the record shares it by identity.
+        events: list[dict] = []
+
+        def _record(message: str) -> None:
+            if len(events) >= MAX_EVENTS_PER_RUN:
+                events.pop(0)
+            events.append({"timestamp": _utcnow().isoformat(), "message": message})
+
+        engine = RecipeEngine(
+            recipe,
+            driver=driver,
+            state_of=state_of,
+            value_of=value_of,
+            on_event=_record,
+            tick=tick,
+            timeout=timeout,
+        )
         record = RunRecord(
             run_id=run_id,
             project_id=project_id,
             recipe_id=recipe_id,
             recipe_name=recipe.header.name,
-            run=RecipeRun(),
-            engine=None,  # type: ignore[arg-type]  # set below; the engine needs `record`
+            # ⚠ **The engine's own run object, by identity — not a placeholder.** This is
+            # what makes a run observable *while it runs*: the engine mutates it in place,
+            # so `GET …/runs/{id}` reports real step states, latched terminals and
+            # held/paused status instead of an empty dict until completion.
+            run=engine.state,
+            engine=engine,
             started_at=_utcnow(),
-        )
-        record.engine = RecipeEngine(
-            recipe,
-            driver=driver,
-            state_of=state_of,
-            value_of=value_of,
-            on_event=record.record,
-            tick=tick,
-            timeout=timeout,
+            events=events,
         )
         self._runs[run_id] = record
         record.task = asyncio.create_task(self._drive(record))
         return record
 
     async def _drive(self, record: RunRecord) -> None:
-        """Run the engine and adopt its result as the record's own.
+        """Drive the engine to completion.
 
-        `RecipeEngine.run()` builds its own `RecipeRun` and returns it at the end, so the
-        record's placeholder must be replaced — otherwise `GET` would report a run stuck at
-        `running` for ever. The engine already converts any failure into a failed run
-        (unit 6), so an exception here means the engine itself broke.
+        Nothing is reassigned: `record.run` **is** the engine's run object, so it has been
+        reporting live all along. The engine converts any plant failure into a failed run
+        itself (unit 6), so reaching the handlers below means the engine broke.
         """
         try:
-            record.run = await record.engine.run()
+            await record.engine.run()
         except asyncio.CancelledError:
             record.run.status = "aborted"
             record.record("run task cancelled")

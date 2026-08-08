@@ -195,6 +195,15 @@ class RecipeEngine:
         # aborted, or when something actually goes wrong. Tests pass a short one explicitly.
         self._timeout = timeout
         self._aborted = False
+        self._run = RecipeRun()
+        """The one run object, created up front and mutated in place.
+
+        ⚠ **It must be reachable *before* `run()` returns**, or nothing can observe a run
+        while it is running. `run()` used to build its own and hand it back at the end, so
+        `RunManager` held a placeholder that stayed `status="running", steps={}` for the
+        whole execution — making unit 6's held/paused reporting and §8's four step states
+        invisible from outside, and M5.5's live view impossible. Exposed via `state`.
+        """
         self._steps = {s.id: s for s in recipe.steps}
         self._terminated_at: dict[str, float] = {}
         """step id -> monotonic time it was latched. For a **self-completing** step the
@@ -209,6 +218,14 @@ class RecipeEngine:
         are now awaiting termination. **The winning branch is latched here** (chart §5(a)):
         an armed transition is never re-evaluated, so a receptivity falling false during
         `COMPLETING` cannot strand the run with no true branch."""
+
+    @property
+    def state(self) -> RecipeRun:
+        """The live run — the same object `run()` mutates and returns.
+
+        Read it at any time to see progress; it is not a copy.
+        """
+        return self._run
 
     def abort(self) -> None:
         """Request the run stop after the current tick (idempotent).
@@ -244,7 +261,7 @@ class RecipeEngine:
         return f"{message}; still executing (left running): {still}"
 
     async def run(self) -> RecipeRun:
-        run = RecipeRun()
+        run = self._run  # mutated in place so `state` shows progress live — see __init__
         self._emit(f"recipe {self._recipe.header.name!r} started")
 
         # The initial step is inferred from topology — the one step no transition targets.
@@ -491,8 +508,17 @@ class RecipeEngine:
         # with overlapping branches still runs deterministically here, it just has a
         # silently dead branch, which is an authoring smell rather than a safety problem.
         consumed: set[str] = set()
+        # An **armed** transition holds its from-steps until it fires (chart §5(a)), even
+        # across passes. Without this, a step that feeds an AND-join *and* has another
+        # outgoing transition could be claimed, `RESET` and marked `DONE` by that other
+        # transition — after which the join's "all TERMINATED" test can never be satisfied
+        # again and the run hangs, with no timeout left to bound it.
+        held_by_armed = {
+            f for i in self._armed for f in self._recipe.transitions[i].from_ids
+        }
         for index, transition, pending in ready:
-            if any(f in consumed for f in transition.from_ids):
+            blocked = consumed if index in self._armed else consumed | held_by_armed
+            if any(f in blocked for f in transition.from_ids):
                 continue
             consumed.update(transition.from_ids)
 
@@ -537,8 +563,19 @@ class RecipeEngine:
         step = self._steps[step_id]
         run.steps[step_id] = StepState.RUNNING
         self._running_since[step_id] = time.monotonic()
+        try:
+            await self._driver.start(step)
+        except Exception:
+            # It never started, so it must not be reported as "left running" by §7's
+            # sibling list — that would tell the operator to go and stop equipment that
+            # was never commanded. Un-track it and let the failure propagate.
+            run.steps.pop(step_id, None)
+            self._running_since.pop(step_id, None)
+            raise
+        # Emitted only once the step is genuinely under way: `driver.start` returns after
+        # pre-flight, the handshake and await-started, so before this point "started" would
+        # be a claim we cannot make.
         self._emit(
             f"step {step_id} started: {step.service} / procedure {step.procedure_id} "
             f"on PEA {step.pea_id}"
         )
-        await self._driver.start(step)

@@ -505,6 +505,104 @@ def test_times_out_if_stuck() -> None:
     assert run.status == "failed" and run.error == "timed out"
 
 
+# ── audit fixes ─────────────────────────────────────────────────────────────────────
+
+def test_the_run_is_observable_while_it_runs() -> None:
+    """**The audit's P1.** `engine.state` must be the same object `run()` mutates, so a
+    caller can watch progress. It used to build its own and hand it back only at the end,
+    which left `RunManager` holding a placeholder stuck at `running`/`{}` — making unit 6's
+    held/paused reporting and §8's four step states invisible from outside."""
+    plant = FakePlant()
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005)
+        assert engine.state.steps == {}                     # nothing activated yet
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.03)
+
+        live = engine.state
+        assert live.steps == {"s1": StepState.RUNNING}, live.steps
+        plant.finish(1)
+        await asyncio.sleep(0.03)
+        assert live.steps["s1"] is StepState.DONE          # progress visible mid-run
+        assert live.terminal["s1"] is ServiceState.COMPLETED
+        assert "s2" in live.steps
+
+        plant.finish(2)
+        returned = await task
+        assert returned is live, "run() must return the very object it was mutating"
+        return returned
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed"
+
+
+def test_held_status_is_visible_while_the_run_is_held() -> None:
+    """The point of P1: unit 6 built held/paused reporting, and nothing outside the engine
+    could see it."""
+    plant = FakePlant(on_start="HELD")
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.04)
+        assert engine.state.status == "held", engine.state.status
+        plant.finish(1)
+        await asyncio.sleep(0.03)
+        plant.finish(2)
+        return await task
+
+    assert asyncio.run(scenario()).status == "completed"
+
+
+def test_a_step_whose_start_fails_is_not_reported_as_left_running() -> None:
+    """**The audit's P3 #1.** `_activate` marked a step RUNNING before awaiting
+    `driver.start()`, so a step that never started was listed as equipment left running —
+    telling the operator to go and stop something that was never commanded."""
+
+    class FailsOnSecond(FakePlant):
+        async def start(self, step: RecipeStep) -> None:
+            if step.id == "s2":
+                raise RuntimeError("pre-flight: Stirring is EXECUTE (in use)")
+            await super().start(step)
+
+    plant = FailsOnSecond(on_start="COMPLETED")
+    run = asyncio.run(_engine(_linear(), plant, tick=0.005, timeout=None).run())
+    assert run.status == "failed"
+    assert "in use" in run.error
+    assert "s2" not in run.error, run.error       # not claimed as left running
+    assert "s2" not in run.steps
+
+
+def test_an_armed_transition_holds_its_from_steps() -> None:
+    """**The audit's P2b.** A step that feeds an AND-join *and* has another exit could be
+    claimed, RESET and marked DONE by that other transition while the join was armed —
+    after which the join's "all TERMINATED" test could never hold again and the run hung."""
+    plant = FakePlant(on_start="COMPLETED", continuous={"sA"})
+    hot = ValueThreshold(pea_id=1, value_name="Temp", op=">", threshold=80.0)
+    recipe = MasterRecipe(
+        header=Header(name="armed-hold"),
+        steps=[_step("s0", 1), _step("sA", 2), _step("sB", 3), _step("s4", 4)],
+        transitions=[
+            Transition(from_ids=["s0"], to_ids=["sA", "sB"], condition=Always()),
+            Transition(from_ids=["sA", "sB"], to_ids=["s4"], condition=hot),   # the join
+            Transition(from_ids=["sB"], to_ids=[END], condition=Always()),     # competitor
+            Transition(from_ids=["s4"], to_ids=[END], condition=Always()),
+        ],
+    )
+
+    # The guard is true from the outset, so the join arms in the same pass that sB
+    # terminates — which is the case the fix is about. (With it initially false the
+    # competitor wins fairly, because the join simply is not ready; that leaves the join
+    # permanently dead and is a *different* gap — see the deadlock note in `010`.)
+    run = asyncio.run(
+        _engine(recipe, plant, tick=0.005, timeout=2.0, value_of=lambda p, n: 95.0).run()
+    )
+    assert run.status == "completed", (run.status, run.error)
+    assert "s4" in plant.driven, "the armed join never fired — sB was stolen"
+    assert plant.completed == ["sA"], plant.completed   # only the continuous branch
+
+
 # ── unit 8: OR arbitration — deliberate, not incidental ─────────────────────────────
 
 def _selection(pea_id_x: int = 2, pea_id_y: int = 3) -> MasterRecipe:

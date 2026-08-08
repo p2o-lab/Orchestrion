@@ -291,6 +291,7 @@ def update_recipe(
     project_id: int, recipe_id: int, body: MasterRecipe, session: Session = Depends(get_session)
 ) -> RecipeSummary:
     row = _row_or_404(session, project_id, recipe_id)
+    _refuse_while_running(recipe_id, "edited")
     _validate_against_project(body, _project_peas(session, project_id))
     row.name = body.header.name
     row.version = body.header.version
@@ -301,9 +302,29 @@ def update_recipe(
     return _summary(row, body)
 
 
-@router.delete("/api/projects/{project_id}/recipes/{recipe_id}", status_code=204)
+def _refuse_while_running(recipe_id: int, verb: str) -> None:
+    """A recipe with a live run must not be edited or deleted.
+
+    The run holds its own parsed `MasterRecipe`, so it would keep executing the old
+    definition against a row that has changed or vanished — the stored recipe and what the
+    plant is actually doing would silently disagree, which is the last thing an operator
+    reading a run should have to suspect.
+    """
+    live = runs.live_for_recipe(recipe_id)
+    if live is not None:
+        raise HTTPException(
+            409,
+            f"recipe {recipe_id} is running (run {live.run_id}) and cannot be {verb}; "
+            "abort the run first",
+        )
+
+
+@router.delete("/api/projects/{project_id}/recipes/{recipe_id}", status_code=204,
+               responses={409: {"description": "the recipe is currently running"}})
 def delete_recipe(project_id: int, recipe_id: int, session: Session = Depends(get_session)) -> None:
-    session.delete(_row_or_404(session, project_id, recipe_id))
+    row = _row_or_404(session, project_id, recipe_id)
+    _refuse_while_running(recipe_id, "deleted")
+    session.delete(row)
     session.commit()
 
 

@@ -11,6 +11,8 @@ units 2-4 and merely composed at this seam.
 
 from __future__ import annotations
 
+import time
+
 from orchestrion.mtp.model import Pea as PeaModel, Service
 from orchestrion.opcua import control
 from orchestrion.opcua.registry import PeaRegistry
@@ -34,9 +36,25 @@ class PlantStepDriver:
     never re-parses AML and never touches the database.
     """
 
+    READ_FAILURE_BUDGET = 10.0
+    """How long `read_state` may keep failing for one step before the run is failed.
+
+    Swallowing read errors **forever** is a silent hang: `_observe` reads "no reading" as
+    "keep waiting", and step model §11 removed the global timeout that used to bound it.
+    So there has to be a limit — but it must be **generously longer than the registry's
+    health interval** (`_HEALTH_INTERVAL = 2 s`), because a dead PEA is the common cause
+    and the health loop produces a far better message: *"lost connection to PEA n while
+    step 's1' was running"* rather than *"could not read the state"*. Give it several
+    chances to win the race, and only then fail on our own terms.
+
+    A **duration**, not a count of ticks, so it stays meaningful if the engine's tick
+    changes — a count coupled the budget to a number this module cannot see.
+    """
+
     def __init__(self, registry: PeaRegistry, peas: dict[int, PeaModel]) -> None:
         self._registry = registry
         self._peas = peas
+        self._read_failing_since: dict[str, float] = {}  # step id -> first failure (monotonic)
 
     # ── resolution ──────────────────────────────────────────────────────────────────
 
@@ -103,15 +121,25 @@ class PlantStepDriver:
         if conn is None:
             return None  # disconnected — `is_connected` is what the engine acts on
         try:
-            return await conn.read_state(self._service(step))
+            state = await conn.read_state(self._service(step))
         except StepBindingError:
             raise
-        except Exception:
-            # A read that fails mid-run is not itself proof of anything: the health loop
-            # will drop the connection and `is_connected` will fail the run with a message
-            # that actually says what happened. Returning None keeps the engine waiting one
-            # more tick rather than latching a state we did not read.
+        except Exception as exc:
+            # A failure proves nothing on its own: a reconnecting session blips, and a
+            # genuinely dead PEA is about to be caught by the registry's health loop, which
+            # reports it far better than we can. Keep waiting until the budget is spent,
+            # then fail on our own terms rather than hang for ever.
+            since = self._read_failing_since.setdefault(step.id, time.monotonic())
+            waited = time.monotonic() - since
+            if waited >= self.READ_FAILURE_BUDGET:
+                raise StepBindingError(
+                    f"step {step.id!r}: could not read the state of {step.service!r} on "
+                    f"PEA {step.pea_id} for {waited:.0f}s — last error: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             return None
+        self._read_failing_since.pop(step.id, None)  # a good read clears the streak
+        return state
 
     def is_self_completing(self, step: RecipeStep) -> bool:
         """[2658-4:2022] Table 36 #4b, straight off the parsed MTP."""
