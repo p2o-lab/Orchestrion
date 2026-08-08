@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Background,
@@ -28,6 +28,7 @@ import {
   recipeToGraph,
   reprioritise,
   selectionBranchMayDefault,
+  starvableJoins,
   transitionPositions,
   type BarSpan,
   type BranchAction,
@@ -221,6 +222,14 @@ export function RecipeBuilder() {
     })
     if (changed) setNodes(next)
   }, [nodes, edges, setNodes])
+
+  /** Charts that can strand a run: a step feeding an AND-join *and* another exit. Surfaced as
+   *  a warning only — see `starvableJoins` for why it must not block, and for the runtime
+   *  liveness check that is the real fix. */
+  const starvable = useMemo(
+    () => starvableJoins(nodes.map(toGraphNode), edges.map(toGraphEdge)),
+    [nodes, edges],
+  )
 
   /** Is this step's procedure self-completing? Straight off the PEA's parsed MTP
    *  ([2658-4:2022] Table 36 #4b) — it decides the default receptivity (chart §4). */
@@ -459,6 +468,24 @@ export function RecipeBuilder() {
           <h1 className="truncate text-xl text-ink">{header?.name ?? recipe?.name ?? '…'}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {/* A **warning**, never a block: the shape is a legitimate idiom ("wait for both,
+              unless the alarm fires first") and this check cannot prove it will strand. The
+              real fix is a runtime liveness check in the engine — see `starvableJoins`. */}
+          {starvable.length > 0 && (
+            <span
+              className="max-w-sm truncate rounded-md border border-warn/40 bg-warn/10 px-2 py-1 text-xs text-warn"
+              title={starvable
+                .map(
+                  (j) =>
+                    `Step ${j.stepId} feeds the join ${j.joinId} and also ${j.escapeIds.join(', ')}. ` +
+                    `If an escape fires first, ${j.stepId} is consumed and the join can never fire — ` +
+                    `anything waiting on it waits for ever.`,
+                )
+                .join('\n\n')}
+            >
+              ⚠ {starvable.length} branch{starvable.length > 1 ? 'es' : ''} can strand a join
+            </span>
+          )}
           {error && <span className="max-w-xs truncate text-xs text-danger" title={error}>{error}</span>}
           <Button variant="ghost" small onClick={() => setShowSettings(true)} disabled={!recipe}>
             <Icon name="pencil" size={15} /> Settings

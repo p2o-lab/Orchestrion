@@ -20,6 +20,7 @@ import {
   defaultCondition,
   reprioritise,
   selectionBranchMayDefault,
+  starvableJoins,
   graphToSteps,
   graphToTransitions,
   initialStepId,
@@ -576,5 +577,72 @@ describe('OR-branch priority — chart §8', () => {
       const again = graphToTransitions(reloaded.nodes, reloaded.edges).transitions
       expect(again.map((t) => t.to_ids[0])).toEqual(transitions.map((t) => t.to_ids[0]))
     })
+  })
+})
+
+describe('starvable joins — the deadlock WARNING', () => {
+  /** s1 feeds the join (with s2) and also an escape branch. */
+  const starvable = () => ({
+    nodes: [step('s1'), step('s2'), step('s4'), step('s5'), transition('tJoin'), transition('tEsc')],
+    edges: [
+      link('s1', 'tJoin'), link('s2', 'tJoin'), link('tJoin', 's4'),
+      link('s1', 'tEsc'), link('tEsc', 's5'),
+    ],
+  })
+
+  it('flags the step that feeds both a join and an escape', () => {
+    // If tEsc wins, s1 is RESET and DONE; cycles are rejected, so s1 can never be active
+    // again and tJoin is permanently dead — s2 then waits for ever.
+    const { nodes, edges } = starvable()
+    expect(starvableJoins(nodes, edges)).toEqual([
+      { stepId: 's1', joinId: 'tJoin', escapeIds: ['tEsc'] },
+    ])
+  })
+
+  it('does NOT flag a join whose steps have no other exit', () => {
+    // The ordinary AND-convergence. Nothing can steal s1 or s2, so nothing can strand it.
+    const nodes = [step('s1'), step('s2'), step('s4'), transition('tJoin')]
+    const edges = [link('s1', 'tJoin'), link('s2', 'tJoin'), link('tJoin', 's4')]
+    expect(starvableJoins(nodes, edges)).toEqual([])
+  })
+
+  it('does NOT flag a plain selection — no join to starve', () => {
+    // Two single-source transitions off one step: that is §6.2.3, arbitrated by priority.
+    const nodes = [step('s1'), step('sX'), step('sY'), transition('t1'), transition('t2')]
+    const edges = [link('s1', 't1'), link('t1', 'sX'), link('s1', 't2'), link('t2', 'sY')]
+    expect(starvableJoins(nodes, edges)).toEqual([])
+  })
+
+  it('does NOT flag a plain series', () => {
+    const nodes = [step('s1'), step('s2'), transition('t1')]
+    expect(starvableJoins(nodes, [link('s1', 't1'), link('t1', 's2')])).toEqual([])
+  })
+
+  it('names every escape that could steal the step', () => {
+    const nodes = [step('s1'), step('s2'), transition('tJoin'), transition('tA'), transition('tB')]
+    const edges = [
+      link('s1', 'tJoin'), link('s2', 'tJoin'),
+      link('s1', 'tA'), link('s1', 'tB'),
+    ]
+    expect(starvableJoins(nodes, edges)[0].escapeIds.sort()).toEqual(['tA', 'tB'])
+  })
+
+  it('flags two joins that can starve each other', () => {
+    // Every outgoing transition is a join, so whichever fires first strands the other.
+    const nodes = [step('s1'), step('s2'), step('s3'), transition('tJ1'), transition('tJ2')]
+    const edges = [
+      link('s1', 'tJ1'), link('s2', 'tJ1'),
+      link('s1', 'tJ2'), link('s3', 'tJ2'),
+    ]
+    expect(starvableJoins(nodes, edges).map((j) => j.joinId).sort()).toEqual(['tJ1', 'tJ2'])
+  })
+
+  it('reports each affected step separately when a join has two starvable feeders', () => {
+    const nodes = [step('s1'), step('s2'), transition('tJoin'), transition('tA'), transition('tB')]
+    const edges = [
+      link('s1', 'tJoin'), link('s2', 'tJoin'),
+      link('s1', 'tA'), link('s2', 'tB'),
+    ]
+    expect(starvableJoins(nodes, edges).map((j) => j.stepId).sort()).toEqual(['s1', 's2'])
   })
 })

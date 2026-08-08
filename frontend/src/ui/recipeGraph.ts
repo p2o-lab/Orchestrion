@@ -492,6 +492,56 @@ export function reprioritise(
   )
 }
 
+// ── starvable joins — an authoring WARNING, never a rejection ─────────────────────────────
+
+/** One step whose AND-join can be starved by a sibling branch. */
+export interface StarvableJoin {
+  /** The step that feeds both the join and at least one other transition. */
+  stepId: string
+  /** The join — a transition gathering several steps (§6.2.7). */
+  joinId: string
+  /** The sibling transitions that can consume `stepId` first and strand the join. */
+  escapeIds: string[]
+}
+
+/**
+ * Charts that can strand a run — chart §8/§10, `010` deadlock discussion (2026-08-08).
+ *
+ * **The shape:** a step feeds an AND-join *and* has another outgoing transition. If the sibling
+ * fires first it consumes the step, `RESET`s it and marks it `DONE`; since cycles are rejected
+ * that step can never be active again, so the join is **permanently dead** and whatever waits on
+ * it waits for ever. Nothing malfunctions — the sibling winning is correct SFC arbitration
+ * (§8, `engine.py`) — the *combination* is what strands the run. Unit 8's `held_by_armed` closes
+ * this only once the join is armed; the window before that is real.
+ *
+ * **This is a warning and must stay one.** The shape is a legitimate idiom — "wait for both A and
+ * B, unless the alarm fires first" — so rejecting it would trade a real capability for a
+ * guarantee this check cannot actually give. It also only catches the shapes we thought to
+ * enumerate, which is the guessing Rule 1 exists to stop.
+ *
+ * ⚠ **This is the cheap stand-in, not the fix.** The real answer is a **runtime liveness check**
+ * in the engine: after a pass where nothing fired, compute which transitions are still reachable
+ * and fail the run with a named diagnosis when none is. That is *decidable* — it fires exactly
+ * when the run is provably dead, needs no threshold, and catches stranded runs from chart forms
+ * nobody enumerated here. Deliberately deferred to its own backend unit; see `010`.
+ */
+export function starvableJoins(nodes: GraphNode[], edges: GraphEdge[]): StarvableJoin[] {
+  const fromCount = new Map<string, number>()
+  for (const e of edges) fromCount.set(e.target, (fromCount.get(e.target) ?? 0) + 1)
+
+  const found: StarvableJoin[] = []
+  for (const step of nodes.filter((n) => n.kind === 'step')) {
+    const outgoing = edges.filter((e) => e.source === step.id).map((e) => e.target)
+    if (outgoing.length < 2) continue // no sibling can steal the step
+    for (const joinId of outgoing) {
+      // A join gathers several steps; only then can losing this one strand it.
+      if ((fromCount.get(joinId) ?? 0) < 2) continue
+      found.push({ stepId: step.id, joinId, escapeIds: outgoing.filter((id) => id !== joinId) })
+    }
+  }
+  return found
+}
+
 /** Rebuild the persisted steps from the canvas, keeping their positions. */
 export function graphToSteps(nodes: GraphNode[]): RecipeStep[] {
   return nodes
