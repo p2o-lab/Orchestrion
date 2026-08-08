@@ -28,7 +28,6 @@ import {
   recipeToGraph,
   reprioritise,
   selectionBranchMayDefault,
-  starvableJoins,
   transitionPositions,
   type BarSpan,
   type BranchAction,
@@ -39,6 +38,7 @@ import {
 // `summarize` moved to `ui/conditions.ts` at unit 11a — it must recurse now that compounds
 // are authorable, and the tree logic is pure and tested there.
 import { summarize } from '../ui/conditions'
+import { validateChart } from '../ui/validateChart'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
@@ -223,13 +223,6 @@ export function RecipeBuilder() {
     if (changed) setNodes(next)
   }, [nodes, edges, setNodes])
 
-  /** Charts that can strand a run: a step feeding an AND-join *and* another exit. Surfaced as
-   *  a warning only — see `starvableJoins` for why it must not block, and for the runtime
-   *  liveness check that is the real fix. */
-  const starvable = useMemo(
-    () => starvableJoins(nodes.map(toGraphNode), edges.map(toGraphEdge)),
-    [nodes, edges],
-  )
 
   /** Is this step's procedure self-completing? Straight off the PEA's parsed MTP
    *  ([2658-4:2022] Table 36 #4b) — it decides the default receptivity (chart §4). */
@@ -241,6 +234,15 @@ export function RecipeBuilder() {
       return svc?.procedures.find((p) => p.procedure_id === d.procedure_id)?.is_self_completing ?? true
     },
     [nodes, peaById],
+  )
+
+  /** Everything wrong with the chart — unit 12. **Advisory only: it never blocks Save.** The
+   *  server enforces the same rules on save (`_validate_against_project`, 422) and is the only
+   *  safety boundary (chart §10); if this ever drifts from it, a blocking builder would refuse
+   *  work the server would accept. */
+  const problems = useMemo(
+    () => validateChart(nodes.map(toGraphNode), edges.map(toGraphEdge), stepIsSelfCompleting),
+    [nodes, edges, stepIsSelfCompleting],
   )
 
   // §4.4 — "Step transition and transition step alternation **shall** always be respected
@@ -468,24 +470,22 @@ export function RecipeBuilder() {
           <h1 className="truncate text-xl text-ink">{header?.name ?? recipe?.name ?? '…'}</h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* A **warning**, never a block: the shape is a legitimate idiom ("wait for both,
-              unless the alarm fires first") and this check cannot prove it will strand. The
-              real fix is a runtime liveness check in the engine — see `starvableJoins`. */}
-          {starvable.length > 0 && (
-            <span
-              className="max-w-sm truncate rounded-md border border-warn/40 bg-warn/10 px-2 py-1 text-xs text-warn"
-              title={starvable
-                .map(
-                  (j) =>
-                    `Step ${j.stepId} feeds the join ${j.joinId} and also ${j.escapeIds.join(', ')}. ` +
-                    `If an escape fires first, ${j.stepId} is consumed and the join can never fire — ` +
-                    `anything waiting on it waits for ever.`,
-                )
-                .join('\n\n')}
-            >
-              ⚠ {starvable.length} branch{starvable.length > 1 ? 'es' : ''} can strand a join
-            </span>
-          )}
+          {/* Advisory only — never blocks Save. The server is the boundary (chart §10). */}
+          {problems.length > 0 && (() => {
+            const errors = problems.filter((p) => p.severity === 'error')
+            const bad = errors.length > 0
+            return (
+              <span
+                className={`max-w-sm truncate rounded-md border px-2 py-1 text-xs ${
+                  bad ? 'border-danger/40 bg-danger/10 text-danger' : 'border-warn/40 bg-warn/10 text-warn'
+                }`}
+                title={problems.map((p) => `${p.severity === 'error' ? '✖' : '⚠'} ${p.message}`).join('\n\n')}
+              >
+                {bad ? '✖' : '⚠'} {problems.length} chart {problems.length > 1 ? 'issues' : 'issue'}
+                {bad && errors.length !== problems.length ? ` (${errors.length} blocking on save)` : ''}
+              </span>
+            )
+          })()}
           {error && <span className="max-w-xs truncate text-xs text-danger" title={error}>{error}</span>}
           <Button variant="ghost" small onClick={() => setShowSettings(true)} disabled={!recipe}>
             <Icon name="pencil" size={15} /> Settings
