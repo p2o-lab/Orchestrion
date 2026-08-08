@@ -1,165 +1,271 @@
+// The chart mapping — `docs/POL_Recipe_Chart_GRAFCET.md`, rebuilt at `010` unit 9.
+//
+// **Rewritten, not tweaked.** The previous suite tested AND/OR *bar nodes*, which this unit
+// deletes: §4.3.2 makes AND/OR **link multiplicity**, so the bars are a drawing convention and
+// never were graph elements. Seven of its sixteen tests described behaviour that no longer
+// exists. START/END nodes went the same way (§1, §3).
+
 import { describe, expect, it } from 'vitest'
-import type { Condition, MasterRecipe, Transition } from '../api/types'
-import { graphToTransitions, recipeToGraph, START_ID, END_ID, type GraphEdge, type GraphNode } from './recipeGraph'
 
-const step = (id: string, pea = 1, service = 'Stirring', proc = 1): GraphNode => ({
-  id, kind: 'step', pea_id: pea, service, procedure_id: proc, params: {},
+import type { Condition, MasterRecipe } from '../api/types'
+import {
+  END_ID,
+  defaultCondition,
+  graphToSteps,
+  graphToTransitions,
+  initialStepId,
+  isPitTransition,
+  recipeToGraph,
+  transitionPositions,
+  type GraphEdge,
+  type GraphNode,
+} from './recipeGraph'
+
+const step = (id: string, x = 0, y = 0, pea_id = 1): GraphNode => ({
+  id, kind: 'step', pea_id, service: 'Stirring', procedure_id: 2, params: {}, x, y,
 })
-const cond = (state: string, pea = 1, service = 'Stirring'): Condition => ({ type: 'StateReached', pea_id: pea, service, state })
-const trans = (id: string, condition?: Condition): GraphNode => ({ id, kind: 'transition', condition })
-const andBar = (id: string): GraphNode => ({ id, kind: 'and' })
-const orBar = (id: string): GraphNode => ({ id, kind: 'or' })
-const e = (source: string, target: string): GraphEdge => ({ source, target })
+const transition = (id: string, condition?: Condition): GraphNode => ({
+  id, kind: 'transition', condition,
+})
+const link = (source: string, target: string): GraphEdge => ({ source, target })
 
-function canonCond(c: Condition): Condition {
-  if (c.type === 'And' || c.type === 'Or') {
-    const conditions = c.conditions.map(canonCond).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
-    return { ...c, conditions }
-  }
-  return c
+const hot: Condition = {
+  type: 'ValueThreshold', pea_id: 1, value_name: 'Temp', op: '>', threshold: 80,
 }
-function canon(ts: Transition[]) {
-  return ts
-    .map((t) => ({ from: [...t.from_ids].sort(), to: [...t.to_ids].sort(), condition: canonCond(t.condition) }))
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
-}
-function recipeOf(nodes: GraphNode[], transitions: Transition[]): MasterRecipe {
-  return {
-    header: { name: 'x', version: 1, author: '', product: '' },
-    formula: {},
-    steps: nodes.filter((n) => n.kind === 'step').map((n) => ({
-      id: n.id, pea_id: n.pea_id!, service: n.service!, procedure_id: n.procedure_id!, params: n.params ?? {},
-    })),
-    transitions,
-  }
-}
-const roundTrip = (nodes: GraphNode[], edges: GraphEdge[]) => {
-  const t1 = graphToTransitions(nodes, edges).transitions
-  const g2 = recipeToGraph(recipeOf(nodes, t1))
-  return { t1, t2: graphToTransitions(g2.nodes, g2.edges).transitions, g2 }
-}
+const always: Condition = { type: 'Always' }
 
-describe('GRAFCET series', () => {
-  it('start → s1 → T → s2 → T → END', () => {
-    const nodes = [{ id: START_ID, kind: 'start' } as GraphNode, step('s1'), step('s2'), { id: END_ID, kind: 'end' } as GraphNode, trans('t1', cond('COMPLETED')), trans('t2', cond('COMPLETED', 2))]
-    const edges = [e(START_ID, 's1'), e('s1', 't1'), e('t1', 's2'), e('s2', 't2'), e('t2', END_ID)]
-    const { transitions, error } = graphToTransitions(nodes, edges)
+/** Sort ids so a comparison does not depend on edge order. */
+const canon = (ts: ReturnType<typeof graphToTransitions>['transitions']) =>
+  ts.map((t) => ({ ...t, from_ids: [...t.from_ids].sort(), to_ids: [...t.to_ids].sort() }))
+
+describe('two node kinds, nothing else', () => {
+  it('maps a series: s1 → T → s2', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), transition('t1', hot), step('s2')],
+      [link('s1', 't1'), link('t1', 's2')],
+    )
     expect(error).toBeNull()
-    expect(canon(transitions)).toEqual(canon([
-      { from_ids: ['s1'], to_ids: ['s2'], condition: cond('COMPLETED') },
-      { from_ids: ['s2'], to_ids: [END_ID], condition: cond('COMPLETED', 2) },
-    ]))
+    expect(transitions).toEqual([{ from_ids: ['s1'], to_ids: ['s2'], condition: hot }])
   })
 
-  it('defaults a bare transition to source ✓ COMPLETED', () => {
-    const nodes = [step('s1'), step('s2'), trans('t1')]
-    const { transitions } = graphToTransitions(nodes, [e('s1', 't1'), e('t1', 's2')])
-    expect(transitions[0].condition).toEqual(cond('COMPLETED'))
-  })
-})
-
-describe('AND bar (═) — simultaneous', () => {
-  it('divergence: s1 → T → ═ → {s2,s3}', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), trans('t1', cond('COMPLETED')), andBar('a1')]
-    const edges = [e('s1', 't1'), e('t1', 'a1'), e('a1', 's2'), e('a1', 's3')]
-    const { transitions } = graphToTransitions(nodes, edges)
-    expect(transitions).toHaveLength(1)
-    expect(transitions[0].from_ids).toEqual(['s1'])
-    expect([...transitions[0].to_ids].sort()).toEqual(['s2', 's3'])
-  })
-
-  it('convergence: {s1,s2} → ═ → T → s3', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), trans('t1', cond('EXECUTE')), andBar('a1')]
-    const edges = [e('s1', 'a1'), e('s2', 'a1'), e('a1', 't1'), e('t1', 's3')]
-    const { transitions } = graphToTransitions(nodes, edges)
-    expect(transitions).toHaveLength(1)
-    expect([...transitions[0].from_ids].sort()).toEqual(['s1', 's2'])
-    expect(transitions[0].to_ids).toEqual(['s3'])
-    expect(transitions[0].condition).toEqual(cond('EXECUTE'))
-  })
-
-  it('round-trips an AND split→join diamond', () => {
-    const nodes = [
-      step('s0'), step('s1'), step('s2'), step('s3'),
-      trans('t1', cond('COMPLETED')), trans('t2', cond('EXECUTE')), trans('t3', cond('COMPLETED', 3)),
-      andBar('a1'), andBar('a2'), { id: START_ID, kind: 'start' } as GraphNode, { id: END_ID, kind: 'end' } as GraphNode,
-    ]
-    const edges = [
-      e(START_ID, 's0'), e('s0', 't1'), e('t1', 'a1'), e('a1', 's1'), e('a1', 's2'),
-      e('s1', 'a2'), e('s2', 'a2'), e('a2', 't2'), e('t2', 's3'), e('s3', 't3'), e('t3', END_ID),
-    ]
-    const { t1, t2 } = roundTrip(nodes, edges)
-    expect(canon(t2)).toEqual(canon(t1))
-  })
-})
-
-describe('OR bar (─) — selection', () => {
-  it('divergence: s1 → ─ → {T→s2, T→s3}', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), orBar('o1'), trans('t1', cond('EXECUTE')), trans('t2', cond('HELD'))]
-    const edges = [e('s1', 'o1'), e('o1', 't1'), e('t1', 's2'), e('o1', 't2'), e('t2', 's3')]
-    const { transitions } = graphToTransitions(nodes, edges)
-    expect(transitions).toHaveLength(2)
-    expect(transitions.every((t) => t.from_ids[0] === 's1' && t.to_ids.length === 1)).toBe(true)
-  })
-
-  it('convergence: {s1→T, s2→T} → ─ → s3', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), orBar('o1'), trans('t1', cond('COMPLETED')), trans('t2', cond('COMPLETED', 2))]
-    const edges = [e('s1', 't1'), e('t1', 'o1'), e('s2', 't2'), e('t2', 'o1'), e('o1', 's3')]
-    const { transitions } = graphToTransitions(nodes, edges)
-    expect(transitions).toHaveLength(2)
-    expect(transitions.every((t) => t.to_ids[0] === 's3' && t.from_ids.length === 1)).toBe(true)
-  })
-
-  it('round-trips an OR divergence (and rebuilds the bar)', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), orBar('o1'), trans('t1', cond('EXECUTE')), trans('t2', cond('HELD'))]
-    const edges = [e('s1', 'o1'), e('o1', 't1'), e('t1', 's2'), e('o1', 't2'), e('t2', 's3')]
-    const { t1, t2, g2 } = roundTrip(nodes, edges)
-    expect(g2.nodes.some((n) => n.kind === 'or')).toBe(true)
-    expect(canon(t2)).toEqual(canon(t1))
-  })
-
-  it('round-trips an OR convergence (and rebuilds the bar)', () => {
-    const nodes = [step('s1'), step('s2'), step('s3'), orBar('o1'), trans('t1', cond('COMPLETED')), trans('t2', cond('COMPLETED', 2))]
-    const edges = [e('s1', 't1'), e('t1', 'o1'), e('s2', 't2'), e('t2', 'o1'), e('o1', 's3')]
-    const { t1, t2, g2 } = roundTrip(nodes, edges)
-    expect(g2.nodes.some((n) => n.kind === 'or')).toBe(true)
-    expect(canon(t2)).toEqual(canon(t1))
-  })
-})
-
-describe('GRAFCET alternation rules', () => {
   it('rejects a step wired straight to another step', () => {
-    expect(graphToTransitions([step('s1'), step('s2')], [e('s1', 's2')]).error).toMatch(/alternates steps and transitions/i)
+    const { error } = graphToTransitions([step('s1'), step('s2')], [link('s1', 's2')])
+    expect(error).toMatch(/alternates steps and transitions/i)
+    expect(error).toMatch(/put a transition between them/i)
   })
 
   it('rejects two transitions wired together', () => {
-    const nodes = [step('s1'), step('s2'), trans('t1'), trans('t2')]
-    expect(graphToTransitions(nodes, [e('s1', 't1'), e('t1', 't2'), e('t2', 's2')]).error).toMatch(/alternates steps and transitions/i)
+    const { error } = graphToTransitions(
+      [step('s1'), transition('t1'), transition('t2')],
+      [link('s1', 't1'), link('t1', 't2')],
+    )
+    expect(error).toMatch(/alternates steps and transitions/i)
   })
 
-  it('rejects a dangling transition (no step before or after)', () => {
-    expect(graphToTransitions([step('s1'), trans('t1')], [e('s1', 't1')]).error).toMatch(/before it and one after/i)
+  it('rejects a link to a node that no longer exists', () => {
+    const { error } = graphToTransitions([step('s1')], [link('s1', 'ghost')])
+    expect(error).toMatch(/no longer exists/i)
   })
 
-  it('rejects an OR bar with a step on both sides (no transition between the steps)', () => {
-    const nodes = [step('s1'), step('s2'), orBar('o1')]
-    expect(graphToTransitions(nodes, [e('s1', 'o1'), e('o1', 's2')]).error).toMatch(/OR bar is wired wrong/i)
+  it('rejects a transition with nothing before it', () => {
+    const { error } = graphToTransitions(
+      [transition('t1'), step('s1')],
+      [link('t1', 's1')],
+    )
+    expect(error).toMatch(/at least one step before/i)
+  })
+})
+
+describe('AND and OR come from link count, not from nodes', () => {
+  it('AND divergence: one transition, several succeeding steps', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), transition('t1', hot), step('s2'), step('s3')],
+      [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')],
+    )
+    expect(error).toBeNull()
+    expect(canon(transitions)).toEqual([
+      { from_ids: ['s1'], to_ids: ['s2', 's3'], condition: hot },
+    ])
   })
 
-  it('rejects an AND bar with a step on both sides', () => {
-    const nodes = [step('s1'), step('s2'), andBar('a1')]
-    expect(graphToTransitions(nodes, [e('s1', 'a1'), e('a1', 's2')]).error).toMatch(/AND bar is wired wrong/i)
+  it('AND convergence: several preceding steps, one transition', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), step('s2'), transition('t1', hot), step('s3')],
+      [link('s1', 't1'), link('s2', 't1'), link('t1', 's3')],
+    )
+    expect(error).toBeNull()
+    expect(canon(transitions)).toEqual([
+      { from_ids: ['s1', 's2'], to_ids: ['s3'], condition: hot },
+    ])
   })
 
-  it('rejects a one-branch OR (a single transition into the OR)', () => {
-    const nodes = [step('s1'), step('s2'), orBar('o1'), trans('t1', cond('COMPLETED'))]
-    // s1 → t1 → o1 → s2  : only ONE branch transition, not a real selection
-    expect(graphToTransitions(nodes, [e('s1', 't1'), e('t1', 'o1'), e('o1', 's2')]).error).toMatch(/OR bar is wired wrong/i)
+  it('OR divergence: one step, several succeeding transitions', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), transition('t1', hot), transition('t2', always), step('s2'), step('s3')],
+      [link('s1', 't1'), link('t1', 's2'), link('s1', 't2'), link('t2', 's3')],
+    )
+    expect(error).toBeNull()
+    expect(transitions).toHaveLength(2)
+    expect(transitions.every((t) => t.from_ids[0] === 's1')).toBe(true)
   })
 
-  it('rejects a one-branch AND (a single step out of the AND)', () => {
-    const nodes = [step('s1'), step('s2'), andBar('a1'), trans('t1', cond('COMPLETED'))]
-    // s1 → t1 → a1 → s2  : only ONE parallel step, not a real split
-    expect(graphToTransitions(nodes, [e('s1', 't1'), e('t1', 'a1'), e('a1', 's2')]).error).toMatch(/AND bar is wired wrong/i)
+  it('OR convergence: several transitions into one step', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), step('s2'), transition('t1', hot), transition('t2', always), step('s3')],
+      [link('s1', 't1'), link('t1', 's3'), link('s2', 't2'), link('t2', 's3')],
+    )
+    expect(error).toBeNull()
+    expect(transitions).toHaveLength(2)
+    expect(transitions.every((t) => t.to_ids[0] === 's3')).toBe(true)
+  })
+})
+
+describe('the end of a branch is an unwired output (§3)', () => {
+  it('a transition with no successor serialises to the END sentinel', () => {
+    const { transitions, error } = graphToTransitions(
+      [step('s1'), transition('t1', hot)],
+      [link('s1', 't1')],
+    )
+    expect(error).toBeNull()
+    expect(transitions).toEqual([{ from_ids: ['s1'], to_ids: [END_ID], condition: hot }])
+  })
+
+  it('isPitTransition sees the difference', () => {
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('s2', 't2')]
+    expect(isPitTransition('t2', edges)).toBe(true)
+    expect(isPitTransition('t1', edges)).toBe(false)
+  })
+
+  it('END never becomes a node when a recipe is loaded', () => {
+    const recipe: MasterRecipe = {
+      header: { name: 'r', version: 1, author: '', product: '' },
+      formula: {},
+      steps: [{ id: 's1', pea_id: 1, service: 'Stirring', procedure_id: 2, params: {} }],
+      transitions: [{ from_ids: ['s1'], to_ids: [END_ID], condition: hot }],
+    }
+    const { nodes, edges } = recipeToGraph(recipe)
+    expect(nodes.map((n) => n.kind).sort()).toEqual(['step', 'transition'])
+    expect(nodes.some((n) => n.id === END_ID)).toBe(false)
+    expect(edges).toEqual([link('s1', 't1')])   // the output is simply unwired
+  })
+})
+
+describe('round trips', () => {
+  const roundTrip = (recipe: MasterRecipe) => {
+    const { nodes, edges } = recipeToGraph(recipe)
+    const { transitions, error } = graphToTransitions(nodes, edges)
+    expect(error).toBeNull()
+    return canon(transitions)
+  }
+
+  it('a diamond survives: split, two branches, join, end', () => {
+    const recipe: MasterRecipe = {
+      header: { name: 'd', version: 1, author: '', product: '' },
+      formula: {},
+      steps: ['s0', 'sA', 'sB', 's4'].map((id) => ({
+        id, pea_id: 1, service: 'Stirring', procedure_id: 2, params: {},
+      })),
+      transitions: [
+        { from_ids: ['s0'], to_ids: ['sA', 'sB'], condition: always },
+        { from_ids: ['sA', 'sB'], to_ids: ['s4'], condition: hot },
+        { from_ids: ['s4'], to_ids: [END_ID], condition: always },
+      ],
+    }
+    expect(roundTrip(recipe)).toEqual(canon(recipe.transitions))
+  })
+
+  it('an OR selection survives, including which branch each transition takes', () => {
+    const recipe: MasterRecipe = {
+      header: { name: 'sel', version: 1, author: '', product: '' },
+      formula: {},
+      steps: ['s0', 'sX', 'sY'].map((id) => ({
+        id, pea_id: 1, service: 'Stirring', procedure_id: 2, params: {},
+      })),
+      transitions: [
+        { from_ids: ['s0'], to_ids: ['sX'], condition: hot },
+        { from_ids: ['s0'], to_ids: ['sY'], condition: always },
+        { from_ids: ['sX'], to_ids: [END_ID], condition: always },
+        { from_ids: ['sY'], to_ids: [END_ID], condition: always },
+      ],
+    }
+    expect(roundTrip(recipe)).toEqual(canon(recipe.transitions))
+  })
+
+  it('keeps each step\'s persisted position', () => {
+    const recipe: MasterRecipe = {
+      header: { name: 'p', version: 1, author: '', product: '' },
+      formula: {},
+      steps: [{ id: 's1', pea_id: 3, service: 'Stirring', procedure_id: 1, params: { Duration: 5 }, x: 120, y: 40 }],
+      transitions: [],
+    }
+    const { nodes } = recipeToGraph(recipe)
+    expect(graphToSteps(nodes)).toEqual([
+      { id: 's1', pea_id: 3, service: 'Stirring', procedure_id: 1, params: { Duration: 5 }, x: 120, y: 40 },
+    ])
+  })
+})
+
+describe('the initial step is inferred, and must be unique (§2 / item 1337)', () => {
+  it('finds the one step no transition targets', () => {
+    const nodes = [step('s1'), transition('t1'), step('s2')]
+    expect(initialStepId(nodes, [link('s1', 't1'), link('t1', 's2')])).toBe('s1')
+  })
+
+  it('returns null when two steps have no predecessor', () => {
+    const nodes = [step('s1'), step('s2'), transition('t1'), step('s3')]
+    const edges = [link('s1', 't1'), link('s2', 't1'), link('t1', 's3')]
+    expect(initialStepId(nodes, edges)).toBeNull()
+  })
+
+  it('returns null for a cycle — every step is targeted, so none is initial', () => {
+    // The very shape IEC 60848 Figure 2 draws, and why the inference needs cycles rejected.
+    const nodes = [step('s1'), transition('t1'), step('s2'), transition('t2')]
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('s2', 't2'), link('t2', 's1')]
+    expect(initialStepId(nodes, edges)).toBeNull()
+  })
+})
+
+describe('the default receptivity depends on the procedure kind (§4)', () => {
+  const selfCompleting = () => true
+  const continuous = () => false
+
+  it('is Always when every preceding step ends by itself', () => {
+    expect(defaultCondition(['s1'], selfCompleting)).toEqual({ type: 'Always' })
+  })
+
+  it('is null for a continuous step — the author must supply a real one', () => {
+    expect(defaultCondition(['s1'], continuous)).toBeNull()
+  })
+
+  it('is null if ANY preceding step is continuous, not just a lone one', () => {
+    // §5(b): a continuous step may feed an AND-join, which is exactly where `=1` would
+    // otherwise have been the default and would complete it the instant it started.
+    expect(defaultCondition(['sA', 'sB'], (id) => id !== 'sA')).toBeNull()
+  })
+})
+
+describe('transitions are placed, not stored (§9)', () => {
+  it('sits at the centroid of the steps it links', () => {
+    const nodes = [step('s1', 0, 0), transition('t1'), step('s2', 100, 50)]
+    const at = transitionPositions(nodes, [link('s1', 't1'), link('t1', 's2')])
+    expect(at.get('t1')).toEqual({ x: 50, y: 25 })
+  })
+
+  it('centres over the fan of an AND divergence', () => {
+    const nodes = [step('s1', 50, 0), transition('t1'), step('s2', 0, 100), step('s3', 100, 100)]
+    const at = transitionPositions(nodes, [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')])
+    expect(at.get('t1')).toEqual({ x: 50, y: 200 / 3 })
+  })
+
+  it('recipeToGraph gives transitions no stored coordinates', () => {
+    const recipe: MasterRecipe = {
+      header: { name: 'r', version: 1, author: '', product: '' },
+      formula: {},
+      steps: [{ id: 's1', pea_id: 1, service: 'Stirring', procedure_id: 2, params: {} }],
+      transitions: [{ from_ids: ['s1'], to_ids: [END_ID], condition: always }],
+    }
+    const tr = recipeToGraph(recipe).nodes.find((n) => n.kind === 'transition')!
+    expect(tr.x).toBeUndefined()
+    expect(tr.y).toBeUndefined()
   })
 })

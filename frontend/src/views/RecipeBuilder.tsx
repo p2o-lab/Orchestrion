@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  addEdge,
   Background,
   Controls,
   MarkerType,
@@ -18,19 +17,30 @@ import {
 import '@xyflow/react/dist/style.css'
 import { api } from '../api/client'
 import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeHeader, RecipeStep } from '../api/types'
-import { graphToTransitions, recipeToGraph, START_ID, END_ID, type GraphEdge, type GraphNode } from '../ui/recipeGraph'
+import {
+  defaultCondition,
+  graphToTransitions,
+  initialStepId,
+  isPitTransition,
+  recipeToGraph,
+  transitionPositions,
+  type GraphEdge,
+  type GraphNode,
+} from '../ui/recipeGraph'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
-import { EndNode } from './EndNode'
-import { StartNode, TransitionNode, AndNode, OrNode, type TransitionNodeData } from './FlowNodes'
+import { TransitionNode, type TransitionNodeData } from './FlowNodes'
 import { ConditionEditor } from './ConditionEditor'
 import { StepEditor } from './StepEditor'
 import { RecipeSettings } from './RecipeSettings'
 import { NodePalette, DRAG_KEY, type PaletteKind } from './NodePalette'
 
-const nodeTypes = { start: StartNode, step: StepNode, transition: TransitionNode, and: AndNode, or: OrNode, end: EndNode }
-const DEFAULT_COND: Condition = { type: 'StateReached', pea_id: 0, service: '', state: 'COMPLETED' }
+// Two node kinds. `and`/`or`/`start`/`end` were deleted at `010` unit 9 — AND/OR are link
+// multiplicity (chart §4.3.2), the initial step is a double border (§2), and a branch ends by
+// leaving a transition's output unwired (§3).
+const nodeTypes = { step: StepNode, transition: TransitionNode }
+const DEFAULT_COND: Condition = { type: 'Always' }
 
 const selectClass =
   'w-full rounded-lg border border-edge-strong bg-elev px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20'
@@ -47,6 +57,10 @@ function nextStepId(ids: string[]): string {
 
 function summarize(c: Condition): string {
   switch (c.type) {
+    // GRAFCET draws the always-true receptivity as `=1`. Under the two gates that is the
+    // normal case for a self-completing step: completion is gate #1, so there is nothing
+    // for the author to add (chart §4).
+    case 'Always': return '=1'
     case 'StateReached': return `✓ ${c.state}`
     case 'ValueThreshold': return `${c.value_name} ${c.op} ${c.threshold}`
     case 'Elapsed': return `after ${c.seconds}s`
@@ -63,11 +77,7 @@ function toGraphNode(n: Node): GraphNode {
     const d = n.data as StepNodeData
     return { id: n.id, kind: 'step', pea_id: d.pea_id, service: d.service, procedure_id: d.procedure_id, params: d.params, x: n.position.x, y: n.position.y }
   }
-  if (n.type === 'transition') return { id: n.id, kind: 'transition', condition: (n.data as TransitionNodeData).condition }
-  if (n.type === 'and') return { id: n.id, kind: 'and' }
-  if (n.type === 'or') return { id: n.id, kind: 'or' }
-  if (n.type === 'start') return { id: n.id, kind: 'start' }
-  return { id: n.id, kind: 'end' }
+  return { id: n.id, kind: 'transition', condition: (n.data as TransitionNodeData).condition }
 }
 const toGraphEdge = (e: Edge): GraphEdge => ({ source: e.source, target: e.target })
 
@@ -122,40 +132,37 @@ export function RecipeBuilder() {
     seeded.current = true
     const g = recipeToGraph(recipe.definition)
 
-    // Position steps on a grid (honouring saved x/y), then place transitions/START/END at the
-    // centroid of their neighbours so the alternation reads left→right.
-    const pos: Record<string, { x: number; y: number }> = {}
-    g.nodes.filter((n) => n.kind === 'step').forEach((n, i) => {
-      pos[n.id] = { x: n.x ?? 220 + (i % 3) * 320, y: n.y ?? 120 + Math.floor(i / 3) * 190 }
-    })
-    const centroid = (id: string, fallback: { x: number; y: number }, dx = 0) => {
-      const pts = g.edges
-        .filter((e) => e.source === id || e.target === id)
-        .map((e) => pos[e.source === id ? e.target : e.source])
-        .filter(Boolean) as { x: number; y: number }[]
-      pos[id] = pts.length
-        ? { x: pts.reduce((s, p) => s + p.x, 0) / pts.length + dx, y: pts.reduce((s, p) => s + p.y, 0) / pts.length }
-        : fallback
-    }
-    g.nodes.filter((n) => n.kind === 'transition' || n.kind === 'and' || n.kind === 'or').forEach((n) => centroid(n.id, { x: 360, y: 200 }))
-    centroid(START_ID, { x: 60, y: 120 }, -170)
-    centroid(END_ID, { x: 900, y: 200 }, 170)
+    // Steps sit on a grid (honouring their saved x/y — the only stored coordinates). A
+    // transition's place is a *function* of its neighbours (chart §9), so it is computed by
+    // `transitionPositions`, never stored.
+    const placed: GraphNode[] = g.nodes.map((n, i) =>
+      n.kind === 'step'
+        ? { ...n, x: n.x ?? 220 + (i % 3) * 320, y: n.y ?? 120 + Math.floor(i / 3) * 190 }
+        : n,
+    )
+    const stepPos = new Map(placed.filter((n) => n.kind === 'step').map((n) => [n.id, { x: n.x!, y: n.y! }]))
+    const trPos = transitionPositions(placed, g.edges)
+    const initial = initialStepId(placed, g.edges)
 
-    const rfNodes: Node[] = g.nodes.map((n) => {
+    const rfNodes: Node[] = placed.map((n) => {
       if (n.kind === 'step')
         return {
-          id: n.id, type: 'step', position: pos[n.id],
+          id: n.id, type: 'step', position: stepPos.get(n.id) ?? { x: 220, y: 120 },
           data: {
             pea_id: n.pea_id!, service: n.service!, procedure_id: n.procedure_id!, params: n.params ?? {},
             pea: peaById(n.pea_id!)?.name ?? `PEA ${n.pea_id}`,
             procedure: procedureName(n.pea_id!, n.service!, n.procedure_id!),
+            isInitial: n.id === initial,
           } satisfies StepNodeData,
         }
-      if (n.kind === 'transition')
-        return { id: n.id, type: 'transition', position: pos[n.id], data: { condition: n.condition, label: n.condition ? summarize(n.condition) : undefined } satisfies TransitionNodeData }
-      if (n.kind === 'and' || n.kind === 'or') return { id: n.id, type: n.kind, position: pos[n.id], data: {} }
-      if (n.kind === 'start') return { id: n.id, type: 'start', deletable: false, position: pos[n.id], data: {} }
-      return { id: n.id, type: 'end', deletable: false, position: pos[n.id], data: {} }
+      return {
+        id: n.id, type: 'transition', position: trPos.get(n.id) ?? { x: 360, y: 200 },
+        data: {
+          condition: n.condition,
+          label: n.condition ? summarize(n.condition) : undefined,
+          isPit: isPitTransition(n.id, g.edges),
+        } satisfies TransitionNodeData,
+      }
     })
     const rfEdges: Edge[] = g.edges.map((e, i) => arrow(e.source, e.target, `t${i}-${e.source}-${e.target}`))
 
@@ -165,62 +172,87 @@ export function RecipeBuilder() {
     setEdges(rfEdges)
   }, [recipe, peas, peaById, procedureName, setNodes, setEdges])
 
-  // GRAFCET alternation (with the AND/OR bars): which source→target links are legal.
-  const ALLOWED: Record<string, string[]> = {
-    start: ['step'],
-    step: ['transition', 'and', 'or'],
-    transition: ['step', 'and', 'or', 'end'],
-    and: ['step', 'transition'],
-    or: ['step', 'transition'],
-    end: [],
-  }
+  // `isInitial` and `isPit` are **derived from topology**, not authored (chart §2, §3): adding
+  // a step can move the initial marker, and wiring a transition's output un-caps its branch.
+  // So they are recomputed on every graph change — and written back only when something
+  // actually differs, or the state update would retrigger this effect for ever.
+  useEffect(() => {
+    const graphEdges = edges.map(toGraphEdge)
+    const initial = initialStepId(nodes.map(toGraphNode), graphEdges)
+    let changed = false
+    const next = nodes.map((n) => {
+      if (n.type === 'step') {
+        const want = n.id === initial
+        if ((n.data as StepNodeData).isInitial === want) return n
+        changed = true
+        return { ...n, data: { ...n.data, isInitial: want } }
+      }
+      const want = isPitTransition(n.id, graphEdges)
+      if ((n.data as TransitionNodeData).isPit === want) return n
+      changed = true
+      return { ...n, data: { ...n.data, isPit: want } }
+    })
+    if (changed) setNodes(next)
+  }, [nodes, edges, setNodes])
+
+  /** Is this step's procedure self-completing? Straight off the PEA's parsed MTP
+   *  ([2658-4:2022] Table 36 #4b) — it decides the default receptivity (chart §4). */
+  const stepIsSelfCompleting = useCallback(
+    (stepId: string) => {
+      const d = nodes.find((n) => n.id === stepId)?.data as StepNodeData | undefined
+      if (!d) return true
+      const svc = peaById(d.pea_id)?.services.find((s) => s.name === d.service)
+      return svc?.procedures.find((p) => p.procedure_id === d.procedure_id)?.is_self_completing ?? true
+    },
+    [nodes, peaById],
+  )
+
+  // §4.4 — "Step transition and transition step alternation **shall** always be respected
+  // whatever the sequence." With the bars gone that rule is the whole table, so branching is
+  // authored by wiring several links to one node rather than by placing anything.
   const isValidConnection = useCallback(
     (c: Connection | Edge) => {
       const s = nodes.find((n) => n.id === c.source)?.type
       const t = nodes.find((n) => n.id === c.target)?.type
       if (!s || !t || c.source === c.target) return false
-      if (!(ALLOWED[s] ?? []).includes(t)) return false
-      // A bar's two sides must be opposite kinds — its "single" side (AND: one transition · OR: one
-      // step) holds exactly one edge; its "many" side (the opposite kind) holds the branches. Reject
-      // an edge that would make the sides the same kind (step→bar→step) or add a 2nd single-side edge.
-      const sideKinds = (barId: string, side: 'in' | 'out') =>
-        edges
-          .filter((e) => (side === 'in' ? e.target : e.source) === barId)
-          .map((e) => nodes.find((n) => n.id === (side === 'in' ? e.source : e.target))?.type)
-          .filter(Boolean)
-      const barOk = (barId: string, barType: string, newKind: string, side: 'in' | 'out') => {
-        const singleKind = barType === 'and' ? 'transition' : 'step'
-        const same = sideKinds(barId, side)
-        const other = sideKinds(barId, side === 'in' ? 'out' : 'in')
-        if (same.some((k) => k !== newKind)) return false // one side is homogeneous
-        if (other.some((k) => k === newKind)) return false // the two sides are opposite kinds
-        if (newKind === singleKind && same.length >= 1) return false // the single side takes only one
-        return true
-      }
-      if ((t === 'and' || t === 'or') && !barOk(c.target!, t, s, 'in')) return false
-      if ((s === 'and' || s === 'or') && !barOk(c.source!, s, t, 'out')) return false
-      return true
+      return (s === 'step' && t === 'transition') || (s === 'transition' && t === 'step')
     },
-    [nodes, edges],
+    [nodes],
   )
 
   const onConnect = useCallback(
     (c: Connection) => {
       if (!isValidConnection(c)) return
       const key = `e-${c.source}-${c.target}-${Date.now()}`
-      setEdges((es) => addEdge(arrow(c.source!, c.target!, key), es))
-      // A transition's default guard = its (first) upstream step reaching COMPLETED — so a guard
-      // shows the moment you wire a step into it, instead of a bare bar.
-      const srcNode = nodes.find((n) => n.id === c.source)
+      const nextEdges = [...edges, arrow(c.source!, c.target!, key)]
+      setEdges(nextEdges)
+
       const tgtNode = nodes.find((n) => n.id === c.target)
-      if (tgtNode?.type === 'transition' && srcNode?.type === 'step' && !(tgtNode.data as TransitionNodeData).condition) {
-        const d = srcNode.data as StepNodeData
-        const condition: Condition = { type: 'StateReached', pea_id: d.pea_id, service: d.service, state: 'COMPLETED' }
-        setNodes((ns) => ns.map((n) => (n.id === tgtNode.id ? { ...n, data: { condition, label: summarize(condition) } } : n)))
+      if (tgtNode?.type === 'transition') {
+        // Offer a default receptivity only where one is *valid*: `Always` when every
+        // preceding step ends by itself (completion is gate #1, so there is nothing to add),
+        // and **nothing** if any is continuous — there the receptivity IS the completion
+        // criterion, so a default would complete the service the instant it started.
+        const froms = nextEdges.filter((e) => e.target === tgtNode.id).map((e) => e.source)
+        const condition = defaultCondition(froms, stepIsSelfCompleting)
+        if (!(tgtNode.data as TransitionNodeData).condition) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === tgtNode.id
+                ? {
+                    ...n,
+                    data: condition
+                      ? { condition, label: summarize(condition), isPit: isPitTransition(n.id, nextEdges) }
+                      : { isPit: isPitTransition(n.id, nextEdges), needsCondition: true },
+                  }
+                : n,
+            ),
+          )
+        }
       }
       setSaved(false)
     },
-    [nodes, setEdges, setNodes, isValidConnection],
+    [nodes, edges, setEdges, setNodes, isValidConnection, stepIsSelfCompleting],
   )
 
   function updateTransitionCondition(nodeId: string, condition: Condition) {
@@ -248,9 +280,11 @@ export function RecipeBuilder() {
     ])
     setSaved(false)
   }
-  function addBlock(kind: 'transition' | 'and' | 'or', position = { x: 360, y: 180 }) {
+  /** Drop a bare transition. It has no receptivity until a step is wired into it — only then
+   *  is it known whether a default is even valid (chart §4). */
+  function addBlock(kind: 'transition', position = { x: 360, y: 180 }) {
     const id = `${kind}-${Date.now()}`
-    setNodes((ns) => [...ns, { id, type: kind, position, data: {} }])
+    setNodes((ns) => [...ns, { id, type: kind, position, data: { isPit: true } satisfies TransitionNodeData }])
     setSaved(false)
   }
 
@@ -377,10 +411,11 @@ export function RecipeBuilder() {
                     nodeStrokeWidth={0}
                     nodeBorderRadius={4}
                     nodeColor={(n) =>
-                      n.type === 'transition' ? '#fbbf24'
-                        : n.type === 'or' ? '#a78bfa'
-                        : n.type === 'end' || n.type === 'start' ? '#2dd4bf'
-                        : '#7c9cff'
+                      n.type === 'transition'
+                        ? '#fbbf24'
+                        : (n.data as StepNodeData)?.isInitial
+                          ? '#2dd4bf'   // the initial step, matching its double border
+                          : '#7c9cff'
                     }
                     className="!overflow-hidden !rounded-lg !border !border-edge"
                   />

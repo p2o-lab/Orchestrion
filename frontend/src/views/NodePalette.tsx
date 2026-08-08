@@ -1,17 +1,23 @@
 import { Icon } from '../ui/icons'
 
-// What you drop onto a GRAFCET chart. START and END are singletons already on the canvas.
-//   Step        — a PEA service.
-//   Transition  — the guard between two steps (carries the condition).
-//   AND (═)     — simultaneous branch: one transition → parallel steps, or parallel steps → one transition.
-//   OR  (─)     — selection branch: one step → branch transitions, or branch transitions → one step.
-export type PaletteKind = 'step' | 'transition' | 'and' | 'or'
+// What you drop onto the chart — `docs/POL_Recipe_Chart_GRAFCET.md` §1.
+//
+// **Two kinds. Nothing else.** §4.3.2/§4.3.3 close the element list at step · transition ·
+// directed link · transition-condition · action. So there is nothing else *to* drop:
+//   • AND / OR were removed at `010` unit 9 — they are **link multiplicity** (§4.3.2), drawn
+//     from the links themselves, so branching is authored by *wiring*, not by placing a node.
+//     Palette actions that build the wiring for you arrive in unit 11 (§7).
+//   • START / END likewise: the initial step is inferred and double-bordered (§2), and a
+//     branch ends by leaving a transition's output unwired (§3).
+export type PaletteKind = 'step' | 'transition'
 
 const ITEMS: { kind: PaletteKind; label: string; hint: string }[] = [
-  { kind: 'step', label: 'Step', hint: 'a PEA service' },
-  { kind: 'transition', label: 'Transition', hint: 'a guard between two steps — the condition to advance' },
-  { kind: 'and', label: 'AND', hint: 'simultaneous (═): parallel branches run together' },
-  { kind: 'or', label: 'OR', hint: 'selection (─): one branch among several' },
+  { kind: 'step', label: 'Step', hint: 'a PEA service procedure to run' },
+  {
+    kind: 'transition',
+    label: 'Transition',
+    hint: 'the receptivity between two steps — the condition to advance',
+  },
 ]
 
 export const DRAG_KEY = 'application/orchestrion'
@@ -23,19 +29,9 @@ function Glyph({ kind }: { kind: PaletteKind }) {
         <Icon name="module" size={13} />
       </span>
     )
-  if (kind === 'transition')
-    return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5">
-        <span className="h-4 w-[4px] rounded-full bg-warn" />
-      </span>
-    )
-  const lines = kind === 'and' ? 2 : 1
-  const tone = kind === 'and' ? 'bg-accent' : 'bg-[#a78bfa]'
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center gap-[3px] rounded-md bg-white/5">
-      {Array.from({ length: lines }).map((_, i) => (
-        <span key={i} className={`h-4 w-[3px] rounded-full ${tone}`} />
-      ))}
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5">
+      <span className="h-4 w-[4px] rounded-full bg-warn" />
     </span>
   )
 }
@@ -60,7 +56,10 @@ export function NodePalette({ onQuickAdd }: { onQuickAdd: (kind: PaletteKind) =>
           <span className="text-sm font-medium text-ink">{label}</span>
         </div>
       ))}
-      <span className="ml-1 text-[11px] text-faint">drag or click to add · Step → Transition → Step; branch with AND (═) or OR (─)</span>
+      <span className="ml-1 text-[11px] text-faint">
+        drag or click to add · steps and transitions alternate · branch by wiring several links to
+        one node · leave a transition's output free to end that branch
+      </span>
     </div>
   )
 }

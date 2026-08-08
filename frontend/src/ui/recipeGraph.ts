@@ -1,48 +1,58 @@
-// The recipe builder's GRAFCET graph ⇄ engine-transitions mapping — pure, framework-free, tested.
+// The recipe chart's canvas-graph ⇄ engine-transitions mapping — pure, framework-free, tested.
 //
-// GRAFCET (IEC 60848 — the notation IEC 61512-1:2023 normatively references). A chart alternates
-// STEPS and TRANSITIONS joined by directed links, with two branch junctions:
-//   • TRANSITION — carries the receptivity (our `Condition`). The guard lives here, never on an edge.
-//   • AND bar (═, "divergence/convergence en ET") — SIMULTANEOUS. One transition splits into several
-//     parallel steps (divergence), or several steps synchronise into one transition (convergence).
-//     Carries NO condition.
-//   • OR bar (─, "divergence/convergence en OU") — SELECTION. One step opens onto several branch
-//     transitions (divergence), or several branch transitions merge into one step (convergence).
-//     Carries NO condition.
-//   • START marks the initial step; END finishes a branch.
+// Authority: `docs/POL_Recipe_Chart_GRAFCET.md`. Read §0a first — **GRAFCET (IEC 60848) is a
+// borrowed notation; ISA-88 (IEC 61512-1) is the conformance target.** Where GRAFCET is looser
+// (cycles, several initial steps), ISA-88 wins.
 //
-// Placement (the alternation, with the bars):
-//   series        s1 → T → s2
-//   AND diverge   s1 → T → ═ → {s2, s3}          (one transition, the double bar, parallel steps)
-//   AND converge  {s1, s2} → ═ → T → s3          (parallel steps, the double bar, one transition)
-//   OR  diverge   s1 → ─ → {T→s2, T→s3}          (one step, the single bar, a transition per branch)
-//   OR  converge  {s1→T, s2→T} → ─ → s3          (a transition per branch, the single bar, one step)
+// ── TWO NODE KINDS. NOTHING ELSE. ────────────────────────────────────────────────────────
+// §4.3.2 "The structure comprises the following basic items": step · transition · directed link.
+// §4.3.3 adds transition-condition and action. That list is closed, so the canvas holds
+//   • STEP       — a phase: one PEA service procedure to run
+//   • TRANSITION — a node carrying the receptivity (§4.3.3: "associated with each transition,
+//                  the transition-condition is a logical expression which is true or false")
+// and directed links, which carry nothing (§3.1.2).
 //
-// Each TRANSITION node ⇒ exactly one engine `Transition { from_ids, to_ids, condition }`. The bars
-// carry no transition of their own; a transition resolves its from/to ONE HOP through an adjacent bar
-// to the real steps (or END). [IEC 61512-1:2023 §5.3.1: a procedure is steps in series/parallel with
-// transition conditions inserted between them; a step starts only once its predecessors have completed
-// and the intervening transition condition is true.]
+// **No START node. No END node. No AND node. No OR node.** All four were modelled as graph
+// elements by earlier builders and all four are wrong:
+//   • AND/OR are **link multiplicity**, not elements — §4.3.2: "a directed link connects one or
+//     several steps to a transition, or a transition to one or several steps". The bars are how
+//     you *draw* that; drawing conventions are unit 10's job, not the model's.
+//   • the initial step is **inferred from topology** (§2) and drawn with a double border;
+//   • the end of a branch is an **unwired transition output** (§3, a "pit transition"),
+//     serialised as the `END` sentinel.
+//
+// ── THE FOUR BRANCH FORMS, ALL FROM LINK COUNT ───────────────────────────────────────────
+//   series          s1 → T → s2
+//   AND divergence  s1 → T → {s2, s3}     one transition, several succeeding steps
+//   AND convergence {s1, s2} → T → s3     several preceding steps, one transition
+//   OR  divergence  s1 → {T1 → s2, T2 → s3}   one step, several succeeding transitions
+//   OR  convergence {s1 → T1, s2 → T2} → s3   several transitions into one step
+//
+// Each TRANSITION node ⇒ exactly one engine `Transition {from_ids, to_ids, condition}`. 1:1, no
+// heuristics — which is what the bar-node model could never manage.
 
-import type { Condition, MasterRecipe, Transition } from '../api/types'
+import type { Condition, MasterRecipe, RecipeStep, Transition } from '../api/types'
 
-export const START_ID = 'START'
+/** The engine's "this branch is finished" sentinel (`recipe/model.py:40`). Never a node. */
 export const END_ID = 'END'
-export type NodeKind = 'start' | 'step' | 'transition' | 'and' | 'or' | 'end'
+
+export type NodeKind = 'step' | 'transition'
 
 export interface GraphNode {
   id: string
   kind: NodeKind
-  // step fields
+  /** step only — the phase binding */
   pea_id?: number
   service?: string
   procedure_id?: number
   params?: Record<string, number>
-  // transition field — the receptivity guard
-  condition?: Condition
-  // UI-only canvas position
+  /** step only — persisted canvas position (`model.py:72-73`, UI-only, non-normative).
+   *  Transitions deliberately have none: a transition's place is a *function* of its
+   *  neighbours (§9), so it is computed, never stored. */
   x?: number | null
   y?: number | null
+  /** transition only — the receptivity */
+  condition?: Condition
 }
 
 export interface GraphEdge {
@@ -50,162 +60,184 @@ export interface GraphEdge {
   target: string
 }
 
-// Which source-kind → target-kind links are legal (the GRAFCET alternation, with the AND/OR bars).
-const ALLOWED: Record<NodeKind, Set<NodeKind>> = {
-  start: new Set<NodeKind>(['step']),
-  step: new Set<NodeKind>(['transition', 'and', 'or']),
-  transition: new Set<NodeKind>(['step', 'and', 'or', 'end']),
-  and: new Set<NodeKind>(['step', 'transition']),
-  or: new Set<NodeKind>(['step', 'transition']),
-  end: new Set<NodeKind>([]),
+/** The alternation rule — §4.4: "Step transition and transition step alternation **shall**
+ *  always be respected whatever the sequence." With the bars gone this is the whole table. */
+const ALLOWED: Record<NodeKind, NodeKind> = {
+  step: 'transition',
+  transition: 'step',
 }
-
-const completedFor = (n: GraphNode | undefined): Condition => ({
-  type: 'StateReached',
-  pea_id: n?.pea_id ?? 0,
-  service: n?.service ?? '',
-  state: 'COMPLETED',
-})
 
 const uniq = (xs: string[]) => [...new Set(xs)]
 
-/** GRAFCET canvas graph → engine transitions. Returns an error message if the chart breaks a rule. */
+// ── mapping ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Canvas graph → engine transitions.
+ *
+ * Returns `error` (and no transitions) if the chart breaks a structural rule. Only the rules
+ * *inherent to mapping* live here — alternation, dangling links, a transition with no
+ * predecessor. The wider rule set (one initial step, no cycles, `Always` on a continuous
+ * step) is unit 12's, and is enforced server-side regardless: a recipe can be POSTed straight
+ * past this builder, so the canvas is an authoring aid, never the safety boundary.
+ */
 export function graphToTransitions(
   nodes: GraphNode[],
   edges: GraphEdge[],
 ): { transitions: Transition[]; error: string | null } {
   const byId = new Map(nodes.map((n) => [n.id, n]))
-  const kindOf = (id: string) => byId.get(id)?.kind
   const outOf = (id: string) => edges.filter((e) => e.source === id).map((e) => e.target)
   const intoOf = (id: string) => edges.filter((e) => e.target === id).map((e) => e.source)
 
-  // 1. Every link obeys the alternation rule.
   for (const e of edges) {
-    const s = kindOf(e.source)
-    const t = kindOf(e.target)
-    if (!s || !t) return { transitions: [], error: `A link references a node that no longer exists.` }
-    if (!ALLOWED[s].has(t))
+    const source = byId.get(e.source)
+    const target = byId.get(e.target)
+    if (!source || !target)
+      return { transitions: [], error: 'A link references a node that no longer exists.' }
+    if (ALLOWED[source.kind] !== target.kind)
       return {
         transitions: [],
-        error: `GRAFCET alternates steps and transitions: a ${s} cannot link to a ${t}. Put a transition (or an AND/OR bar) between them.`,
+        error:
+          `GRAFCET alternates steps and transitions: a ${source.kind} cannot link straight to ` +
+          `a ${target.kind}. Put a ${ALLOWED[source.kind]} between them.`,
       }
   }
 
-  // 2. Every AND/OR bar is a valid divergence XOR convergence. A bar has a "single" side (AND: one
-  //    transition · OR: one step) and a "many" side of ≥2 branches (AND: parallel steps · OR: branch
-  //    transitions). This rejects both step→bar→step (no transition) and a pointless one-branch bar.
-  for (const bar of nodes.filter((n) => n.kind === 'and' || n.kind === 'or')) {
-    const insK = intoOf(bar.id).map(kindOf)
-    const outsK = outOf(bar.id).map(kindOf)
-    const single: NodeKind = bar.kind === 'and' ? 'transition' : 'step'
-    const many: NodeKind = bar.kind === 'and' ? 'step' : 'transition'
-    const diverge = insK.length === 1 && insK[0] === single && outsK.length >= 2 && outsK.every((k) => k === many)
-    const converge = outsK.length === 1 && outsK[0] === single && insK.length >= 2 && insK.every((k) => k === many)
-    if (!diverge && !converge) {
-      const shape =
-        bar.kind === 'and'
-          ? 'an AND joins one transition on one side and ≥2 parallel steps on the other'
-          : 'an OR joins one step on one side and ≥2 branch transitions on the other'
-      return { transitions: [], error: `This ${bar.kind.toUpperCase()} bar is wired wrong — ${shape}.` }
-    }
-  }
-
-  // A transition reaches its real from/to steps one hop through an adjacent AND/OR bar.
-  const resolveFrom = (id: string): string[] => {
-    const k = kindOf(id)
-    return k === 'and' || k === 'or' ? intoOf(id) : [id] // step, or steps feeding the bar
-  }
-  const resolveTo = (id: string): string[] => {
-    const k = kindOf(id)
-    return k === 'and' || k === 'or' ? outOf(id) : [id] // step/END, or steps the bar opens onto
-  }
-
-  // 2. Each transition node becomes exactly one engine transition.
   const transitions: Transition[] = []
   for (const tr of nodes.filter((n) => n.kind === 'transition')) {
-    const from = uniq(intoOf(tr.id).flatMap(resolveFrom))
-    const to = uniq(outOf(tr.id).flatMap(resolveTo))
-    if (from.length === 0 || to.length === 0)
-      return { transitions: [], error: `Every transition needs at least one step before it and one after it.` }
-    transitions.push({ from_ids: from, to_ids: to, condition: tr.condition ?? completedFor(byId.get(from[0])) })
+    const from = uniq(intoOf(tr.id))
+    if (from.length === 0)
+      return {
+        transitions: [],
+        error: 'Every transition needs at least one step before it.',
+      }
+    // §3 — an unwired output **is** the end of the branch. No toggle, no gesture: a pit
+    // transition simply has no successor, and that serialises as the END sentinel.
+    const to = uniq(outOf(tr.id))
+    transitions.push({
+      from_ids: from,
+      to_ids: to.length > 0 ? to : [END_ID],
+      condition: tr.condition ?? { type: 'Always' },
+    })
   }
-
   return { transitions, error: null }
 }
 
-/** Engine transitions → GRAFCET canvas graph (rebuild transitions + AND/OR bars; START marks initial). */
+/** Engine transitions → canvas graph. One transition node per engine transition, 1:1. */
 export function recipeToGraph(recipe: MasterRecipe): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes: GraphNode[] = recipe.steps.map((s) => ({
-    id: s.id, kind: 'step', pea_id: s.pea_id, service: s.service, procedure_id: s.procedure_id, params: s.params, x: s.x, y: s.y,
+    id: s.id,
+    kind: 'step',
+    pea_id: s.pea_id,
+    service: s.service,
+    procedure_id: s.procedure_id,
+    params: s.params,
+    x: s.x,
+    y: s.y,
   }))
-  nodes.push({ id: START_ID, kind: 'start' })
-  nodes.push({ id: END_ID, kind: 'end' })
   const edges: GraphEdge[] = []
 
-  let tc = 0
-  let ac = 0
-  let oc = 0
-  const newTransition = (condition: Condition) => {
-    const id = `t${++tc}`
-    nodes.push({ id, kind: 'transition', condition })
-    return id
-  }
-  const newBar = (kind: 'and' | 'or') => {
-    const id = kind === 'and' ? `and${++ac}` : `or${++oc}`
-    nodes.push({ id, kind })
-    return id
-  }
-
-  // OR groups: several single-from transitions off one step = OR divergence; several single-to
-  // transitions into one step = OR convergence. Count only among single-ended transitions.
-  const fromCount = new Map<string, number>()
-  const toCount = new Map<string, number>()
-  for (const t of recipe.transitions) {
-    if (t.from_ids.length === 1) fromCount.set(t.from_ids[0], (fromCount.get(t.from_ids[0]) ?? 0) + 1)
-    if (t.to_ids.length === 1) toCount.set(t.to_ids[0], (toCount.get(t.to_ids[0]) ?? 0) + 1)
-  }
-  const orDiv = new Map<string, string>() // from-step → shared OR bar
-  const orConv = new Map<string, string>() // to-step → shared OR bar
-
-  for (const t of recipe.transitions) {
-    const T = newTransition(t.condition)
-
-    // ── from side ──
-    if (t.from_ids.length > 1) {
-      const bar = newBar('and') // AND convergence
-      t.from_ids.forEach((f) => edges.push({ source: f, target: bar }))
-      edges.push({ source: bar, target: T })
-    } else {
-      const f = t.from_ids[0]
-      if ((fromCount.get(f) ?? 0) >= 2) {
-        let bar = orDiv.get(f)
-        if (!bar) { bar = newBar('or'); orDiv.set(f, bar); edges.push({ source: f, target: bar }) }
-        edges.push({ source: bar, target: T })
-      } else {
-        edges.push({ source: f, target: T })
-      }
-    }
-
-    // ── to side ──
-    if (t.to_ids.length > 1) {
-      const bar = newBar('and') // AND divergence
-      edges.push({ source: T, target: bar })
-      t.to_ids.forEach((to) => edges.push({ source: bar, target: to }))
-    } else {
-      const to = t.to_ids[0]
-      if ((toCount.get(to) ?? 0) >= 2) {
-        let bar = orConv.get(to)
-        if (!bar) { bar = newBar('or'); orConv.set(to, bar); edges.push({ source: bar, target: to }) }
-        edges.push({ source: T, target: bar })
-      } else {
-        edges.push({ source: T, target: to })
-      }
-    }
-  }
-
-  // Initial steps = those no transition ever targets — wire START straight to each.
-  const targeted = new Set(recipe.transitions.flatMap((t) => t.to_ids))
-  for (const s of recipe.steps) if (!targeted.has(s.id)) edges.push({ source: START_ID, target: s.id })
+  recipe.transitions.forEach((t, i) => {
+    const id = `t${i + 1}`
+    nodes.push({ id, kind: 'transition', condition: t.condition })
+    t.from_ids.forEach((f) => edges.push({ source: f, target: id }))
+    // END is a sentinel, not a node — a branch that ends simply leaves the output unwired,
+    // and the canvas draws that as a cap (§3).
+    t.to_ids.filter((to) => to !== END_ID).forEach((to) => edges.push({ source: id, target: to }))
+  })
 
   return { nodes, edges }
+}
+
+// ── pure helpers the canvas needs (extracted so they can be tested at all) ─────────────────
+
+/**
+ * The initial step — §2, and [IEC 61512-1] item 1337: a procedure has *"a defined beginning
+ * and end"*, **singular**.
+ *
+ * Inferred from topology: the one step no transition targets. `null` when there is not
+ * exactly one, so the caller can warn while building and block on save.
+ *
+ * ⚠ The inference is only sound because **cycles are rejected** (§2/§10). IEC 60848's own
+ * Figure 2 is a cycle whose double-bordered initial step *is* a transition target — run this
+ * over it and you get none. That is a deliberate ISA-88 narrowing, not a GRAFCET claim.
+ */
+export function initialStepId(nodes: GraphNode[], edges: GraphEdge[]): string | null {
+  const targeted = new Set(edges.map((e) => e.target))
+  const initial = nodes.filter((n) => n.kind === 'step' && !targeted.has(n.id))
+  return initial.length === 1 ? initial[0].id : null
+}
+
+/** A transition with no outgoing link — its branch ends here (§3, "pit transition"). */
+export function isPitTransition(id: string, edges: GraphEdge[]): boolean {
+  return !edges.some((e) => e.source === id)
+}
+
+/**
+ * The receptivity a newly-wired transition should start with — §4.
+ *
+ * `Always` when every preceding step ends by itself: completion is gate #1 (step model §3), so
+ * the author has nothing to add. **`null` when any preceding step is continuous** — there the
+ * receptivity *is* the completion criterion, so `Always` would start the service and complete
+ * it in the same instant. The caller must make the author supply a real one.
+ *
+ * Stated over *all* the from-steps, not one, because a continuous step may also feed an
+ * AND-join (§5(b)) — which is exactly where `=1` would otherwise be the default.
+ */
+export function defaultCondition(
+  fromStepIds: string[],
+  isSelfCompleting: (stepId: string) => boolean,
+): Condition | null {
+  return fromStepIds.every(isSelfCompleting) ? { type: 'Always' } : null
+}
+
+/**
+ * Where each transition sits — §9: "a transition's position is a *function* of its neighbours",
+ * so it is computed, never stored.
+ *
+ * The centroid of the steps it links, which places it between them for a series and centred
+ * over the fan for a branch. Unit 10 draws the spanning bar from the same neighbour geometry.
+ */
+export function transitionPositions(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): Map<string, { x: number; y: number }> {
+  const stepAt = new Map(
+    nodes
+      .filter((n) => n.kind === 'step')
+      .map((n) => [n.id, { x: n.x ?? 0, y: n.y ?? 0 }]),
+  )
+  const positions = new Map<string, { x: number; y: number }>()
+
+  for (const tr of nodes.filter((n) => n.kind === 'transition')) {
+    const neighbours = edges
+      .filter((e) => e.source === tr.id || e.target === tr.id)
+      .map((e) => (e.source === tr.id ? e.target : e.source))
+      .map((id) => stepAt.get(id))
+      .filter((p): p is { x: number; y: number } => p !== undefined)
+
+    if (neighbours.length === 0) {
+      positions.set(tr.id, { x: 0, y: 0 })
+      continue
+    }
+    positions.set(tr.id, {
+      x: neighbours.reduce((sum, p) => sum + p.x, 0) / neighbours.length,
+      y: neighbours.reduce((sum, p) => sum + p.y, 0) / neighbours.length,
+    })
+  }
+  return positions
+}
+
+/** Rebuild the persisted steps from the canvas, keeping their positions. */
+export function graphToSteps(nodes: GraphNode[]): RecipeStep[] {
+  return nodes
+    .filter((n) => n.kind === 'step')
+    .map((n) => ({
+      id: n.id,
+      pea_id: n.pea_id ?? 0,
+      service: n.service ?? '',
+      procedure_id: n.procedure_id ?? 0,
+      params: n.params ?? {},
+      x: n.x ?? null,
+      y: n.y ?? null,
+    }))
 }

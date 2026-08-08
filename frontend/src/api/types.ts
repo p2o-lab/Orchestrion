@@ -86,6 +86,11 @@ export interface LogEvent {
 
 // ── Recipes (v0.2.0) — mirror orchestrion/recipe/model.py + api/recipes.py ──────────
 
+/** The step completing is the only gate — drawn `=1` in GRAFCET.
+ *  Not valid on a transition with a *continuous* step before it: there the receptivity IS the
+ *  completion criterion, so this would complete the service the instant it started. The
+ *  backend rejects that (422); `recipeGraph.defaultCondition` never offers it. */
+export interface Always { type: 'Always' }
 export interface StateReached { type: 'StateReached'; pea_id: number; service: string; state: string }
 export interface ValueThreshold {
   type: 'ValueThreshold'
@@ -97,7 +102,7 @@ export interface ValueThreshold {
 export interface Elapsed { type: 'Elapsed'; seconds: number }
 export interface AndCond { type: 'And'; conditions: Condition[] }
 export interface OrCond { type: 'Or'; conditions: Condition[] }
-export type Condition = StateReached | ValueThreshold | Elapsed | AndCond | OrCond
+export type Condition = Always | StateReached | ValueThreshold | Elapsed | AndCond | OrCond
 
 export interface RecipeStep {
   id: string
