@@ -227,7 +227,7 @@ export function transitionPositions(
   return positions
 }
 
-/** One branch bar: where to draw it relative to its own node, and how far it reaches. */
+/** One synchronization bar: where to draw it relative to its own node, and how far it reaches. */
 export interface BarSpan {
   /** Vertical centre of the span, relative to the owning node's y. */
   offsetY: number
@@ -238,9 +238,9 @@ export interface BarSpan {
 }
 
 export interface NodeBars {
-  /** Several links arriving — a convergence. */
+  /** Several steps arriving — synchronization of sequences ([IEC 60848:2013] §6.2.7). */
   incoming?: BarSpan
-  /** Several links leaving — a divergence. */
+  /** Several steps leaving — activation of parallel sequences ([IEC 60848:2013] §6.2.6). */
   outgoing?: BarSpan
 }
 
@@ -248,21 +248,31 @@ export interface NodeBars {
 export const MIN_BAR_HEIGHT = 28
 
 /**
- * Where each node's branch bars go — chart §6.
+ * Where each **transition's** synchronization bars go — chart §6.
  *
- * **The bars are drawing, not structure.** AND/OR are link multiplicity (§4.3.2), so a bar is
- * simply how a node with more than one link on a side is *drawn*: a transition gathering
- * several steps is an AND (double bar), a step opening onto several transitions is an OR
- * (single rail). Nothing here changes the graph — delete this function and the recipe is
- * identical, just uglier. Which is exactly why the earlier bar-*nodes* were wrong.
+ * `[CITED]` [IEC 60848:2013] Table 2 **[9]**, *"Synchronization preceding and/or succeeding a
+ * transition"*: "When several steps are connected to the same transition, the directed links
+ * from and/or to these steps are grouped, to succeed or precede the synchronization symbol
+ * represented by **two parallel horizontal lines**." So the bar belongs to the **transition**, on
+ * the side that has several steps — which is why this returns entries for transitions only.
+ * (Verified in DIN EN 60848:2014-12, the German adoption of Ed. 3.0, and identical in Ed. 2.0.)
  *
- * Flow runs left→right, so branches fan out vertically and a bar spans their **y** range.
- * Computed from positions because React Flow gives handles, not spans (§6's stated cost).
+ * **Steps never own a bar.** §6.2.3: a selection of sequences is represented "by as many
+ * simultaneously enabled transitions as possible evolutions" — no symbol whatsoever. The
+ * single "OR rail" this function used to emit for a branching step was **invented**; it was
+ * deleted once the symbol tables were finally read (`010` §12, unit 10 rebuild).
  *
- * ⚠ **`[OURS]`, and unverified.** IEC 60848 §5's Tables 1-4 — the symbol tables — were never
- * read (`BLOCKED ON STANDARD`, chart §0). The *structures* are cited; that a divergence is
- * drawn as a **double** bar and a selection as a **single** rail is from memory. No glyph here
- * may be defended as standard-conformant.
+ * **The bars are drawing, not structure.** AND is link multiplicity (§4.3.2), so a bar is simply
+ * how a transition with more than one step on a side is *drawn*. Nothing here changes the graph
+ * — delete this function and the recipe is identical, just uglier. Which is exactly why the
+ * earlier bar-*nodes* were wrong.
+ *
+ * Table 3 [10] makes links horizontal or vertical and [11] fixes top→bottom "by convention…
+ * arrows **shall** be used if this convention is not respected". Our canvas runs left→right and
+ * draws arrowheads on every edge (`RecipeBuilder.EDGE`), which is the sanctioned deviation.
+ * Branches therefore fan out vertically and a bar spans their **y** range — perpendicular to the
+ * link, as [9]'s "parallel lines" are to a top→bottom one. Computed from positions because React
+ * Flow gives handles, not spans (§6's stated cost).
  */
 export function barSpans(
   nodes: GraphNode[],
@@ -286,6 +296,9 @@ export function barSpans(
   }
 
   for (const node of nodes) {
+    // Table 2 [9] hangs the symbol off the *transition*. A step with several succeeding
+    // transitions is a selection (§6.2.3) and carries no symbol at all.
+    if (node.kind !== 'transition') continue
     const incoming = spanOf(node.id, edges.filter((e) => e.target === node.id).map((e) => e.source))
     const outgoing = spanOf(node.id, edges.filter((e) => e.source === node.id).map((e) => e.target))
     if (incoming || outgoing) bars.set(node.id, { incoming, outgoing })

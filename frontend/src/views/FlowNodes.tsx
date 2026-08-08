@@ -3,19 +3,17 @@ import type { Condition } from '../api/types'
 import type { BarSpan } from '../ui/recipeGraph'
 
 /**
- * A branch bar — chart §6. Drawn by the node that owns it, spanning its branches, which is
- * GRAFCET's stacked-marks convention rather than fanning edges out of a point.
+ * The synchronization symbol — chart §6. `[CITED]` [IEC 60848:2013] Table 2 **[9]**: "When
+ * several steps are connected to the same transition, the directed links from and/or to these
+ * steps are grouped, to succeed or precede the synchronization symbol represented by **two
+ * parallel horizontal lines**." Hence exactly two, always — it is one symbol, not a family, so
+ * there is nothing here to parameterise. Drawn by the transition that owns it, spanning its steps.
  *
- * `lines={2}` is the AND (simultaneous) bar a transition draws; `lines={1}` is the OR
- * (selection) rail a step draws. ⚠ **`[OURS]` and unverified** — IEC 60848 §5's symbol tables
- * were never read (`BLOCKED ON STANDARD`), so double-vs-single is from memory.
+ * Table 2 [9] says "horizontal", which is what perpendicular means on a top→bottom chart
+ * (Table 3 [11]). Our canvas runs left→right with arrowheads — [11]'s sanctioned deviation —
+ * so the same symbol turns 90° with the flow.
  */
-function BranchBar({ span, side, lines, tone }: {
-  span: BarSpan
-  side: 'left' | 'right'
-  lines: 1 | 2
-  tone: string
-}) {
+function BranchBar({ span, side }: { span: BarSpan; side: 'left' | 'right' }) {
   return (
     <span
       aria-hidden
@@ -26,8 +24,8 @@ function BranchBar({ span, side, lines, tone }: {
         transform: `translateY(calc(-50% + ${span.offsetY}px))`,
       }}
     >
-      {Array.from({ length: lines }).map((_, i) => (
-        <span key={i} className={`w-[3px] rounded-full ${tone}`} style={{ height: '100%' }} />
+      {[0, 1].map((i) => (
+        <span key={i} className="w-[3px] rounded-full bg-accent" style={{ height: '100%' }} />
       ))}
     </span>
   )
@@ -41,9 +39,10 @@ function BranchBar({ span, side, lines, tone }: {
 // glyph seen in Figure 2 — with the condition summary beside it. Double-click to edit.
 //
 // **AndNode / OrNode / StartNode / EndNode were deleted at `010` unit 9.** AND and OR are
-// **link multiplicity** (§4.3.2), not elements, so the bars are a drawing convention that
-// unit 10 renders *from* the links. The initial step is inferred and drawn with a double
-// border (`StepNode`), and the end of a branch is an unwired output (§3), not a node.
+// **link multiplicity** (§4.3.2), not elements. AND gets a symbol — Table 2 [9]'s two parallel
+// lines, rendered below *from* the links — while OR gets none at all (§6.2.3). The initial step
+// is inferred and drawn with a double border (`StepNode`), and the end of a branch is an
+// unwired output (§3), not a node.
 
 export interface TransitionNodeData {
   condition?: Condition // the receptivity; the engine transition carries it
@@ -54,8 +53,9 @@ export interface TransitionNodeData {
   /** A continuous from-step needs a real receptivity; `Always` would complete it instantly
    *  (§4). Until the author supplies one the transition is visibly incomplete. */
   needsCondition?: boolean
-  /** The AND bars this transition draws when it gathers or opens onto several steps (§6).
-   *  Computed by `recipeGraph.barSpans` — decoration over link multiplicity, never structure. */
+  /** The synchronization symbols this transition draws when several steps precede it
+   *  (§6.2.7) or succeed it (§6.2.6) — Table 2 [9]. Computed by `recipeGraph.barSpans`;
+   *  decoration over link multiplicity, never structure. */
   barIn?: BarSpan
   barOut?: BarSpan
   [key: string]: unknown
@@ -66,9 +66,10 @@ export function TransitionNode({ data, selected }: NodeProps) {
   const set = Boolean(d.label)
   return (
     <div className="relative flex items-center gap-2">
-      {/* AND — simultaneous. A double bar spanning the steps it synchronises or launches. */}
-      {d.barIn ? <BranchBar span={d.barIn} side="left" lines={2} tone="bg-accent" /> : null}
-      {d.barOut ? <BranchBar span={d.barOut} side="right" lines={2} tone="bg-accent" /> : null}
+      {/* Table 2 [9] — two parallel lines spanning the steps this transition synchronises
+          (§6.2.7) or activates in parallel (§6.2.6); both sides at once is §6.2.8. */}
+      {d.barIn ? <BranchBar span={d.barIn} side="left" /> : null}
+      {d.barOut ? <BranchBar span={d.barOut} side="right" /> : null}
       <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-warn" />
       {/* the receptivity bar — a tick across the directed link */}
       <div className={`h-9 w-[4px] rounded-full bg-warn ${selected ? 'ring-2 ring-warn/40' : ''}`} />

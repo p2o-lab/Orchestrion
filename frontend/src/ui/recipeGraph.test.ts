@@ -246,7 +246,7 @@ describe('the default receptivity depends on the procedure kind (§4)', () => {
   })
 })
 
-describe('branch bars are drawn from link count (§6)', () => {
+describe('synchronization bars are drawn from link count — Table 2 [9], chart §6', () => {
   const at = (entries: [string, number, number][]) =>
     new Map(entries.map(([id, x, y]) => [id, { x, y }]))
 
@@ -265,11 +265,23 @@ describe('branch bars are drawn from link count (§6)', () => {
     expect(bars.get('t1')?.incoming).toEqual({ offsetY: 0, height: 200, count: 2 })
   })
 
-  it('gives a step with several succeeding transitions a rail (OR divergence)', () => {
+  it('gives a step with several succeeding transitions NOTHING — a selection has no symbol', () => {
+    // [IEC 60848:2013] §6.2.3: a selection of sequences "is represented by as many
+    // simultaneously enabled transitions as possible evolutions". No bar, no rail. Unit 10
+    // originally drew a single "OR rail" here; it was invented, and the standard deletes it.
     const nodes = [step('s1'), transition('t1'), transition('t2')]
     const edges = [link('s1', 't1'), link('s1', 't2')]
     const bars = barSpans(nodes, edges, at([['s1', 0, 100], ['t1', 100, 50], ['t2', 100, 150]]))
-    expect(bars.get('s1')?.outgoing).toEqual({ offsetY: 0, height: 100, count: 2 })
+    expect(bars.get('s1')).toBeUndefined()
+    expect(bars.size).toBe(0)
+  })
+
+  it('gives a step with several preceding transitions nothing either (a convergence of selections)', () => {
+    // §6.2.3's mirror: several sequences rejoining is still just several transitions. Only
+    // Table 2 [9] — several *steps* on one transition — draws a symbol.
+    const nodes = [transition('t1'), transition('t2'), step('s1')]
+    const edges = [link('t1', 's1'), link('t2', 's1')]
+    expect(barSpans(nodes, edges, at([['t1', 0, 50], ['t2', 0, 150], ['s1', 100, 100]])).size).toBe(0)
   })
 
   it('offsets the bar when the branches are not centred on their node', () => {

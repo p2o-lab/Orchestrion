@@ -52,20 +52,42 @@ outside the preview.
 | **`[DERIVED]`** | inference *from* cited clauses. |
 | **`[OURS]`** | a judgement call with no standard behind it. |
 
-> ### ⛔ `BLOCKED ON STANDARD: IEC 60848:2013 §5 (Tables 1–4) and the §6 figures`
-> The **structures** are sound — §4.3.2, §4.3.3 and §4.4, all read in full. How they are **drawn** is
-> still largely unverified. **Narrowed 2026-08-05** by rendering Figure 2 rather than only extracting
-> its text:
+> ### ✅ `RESOLVED 2026-08-08 — the symbol tables have been read, in both editions`
+> **The governing edition is now held in full.** `../standards/IEC 60848_2013/` carries
+> **DIN EN 60848:2014-12**, the German adoption of **EN 60848:2013 = IEC 60848:2013 (Ed. 3.0)** — 57
+> pages, the whole standard, Clause 5's Tables 1–11 included. **IEC 60848:2002 (Ed. 2.0)**, 110 pages
+> bilingual FR/EN, was also obtained. Both are extracted to the session scratchpad. Clause 5's symbol
+> tables and Clause 6's structures are read directly; this block is lifted.
 >
-> | glyph | status |
+> **Ed. 3.0 is authoritative here** — it is the edition ISA-88 and this document cite, and it *"cancels
+> and replaces the second edition"*. **Ed. 2.0 agrees with it on every symbol we depend on**, checked
+> clause by clause, which is why the quotations below are given in whichever language reads clearest.
+>
+> **⚠ Clause numbers moved between editions; table numbers did not.** Ed. 3.0 inserted a §6.1
+> *"General"*, pushing Clause 6 down one:
+>
+> | topic | Ed. 3.0 (2013) — **use this** | Ed. 2.0 (2002) |
+> |---|---|---|
+> | Selection of sequences | **§6.2.3** | §6.1.3 |
+> | Activation of parallel sequences | **§6.2.6** | §6.1.6 |
+> | Synchronization of sequences | **§6.2.7** | §6.1.7 |
+> | End of a sequence by a pit transition | **§6.3.4** | §6.2.4 |
+> | *(what Ed. 2.0 calls §6.2.2)* | §6.3.2 | **"End of a sequence by a pit step"** — an entirely different subject from Ed. 3.0's §6.2.2 |
+>
+> Tables 1–11 keep their numbers, titles and order across both editions, so **Table 2 [9]** means the
+> same thing in each. This document's pre-existing §6.2.3/§6.3.4 references were Ed. 3.0 numbering and
+> were correct. Citations added 2026-08-08 use Ed. 3.0 numbers and say so.
+>
+> | glyph | status after the read |
 > |---|---|
-> | **double-border initial step** | **seen** in Figure 2 (step 1 double, steps 2-4 single) — still `[DERIVED]`, since *that it means "initial"* is read off the picture, not a clause |
-> | **transition = a short tick across the directed link** | **seen** in Figure 2, transitions (1)-(4) |
-> | **step = a rectangle, link = a vertical arrowed line** | **seen** in Figure 2 |
-> | `=1` receptivity · branch bars (single vs double) · pit-transition cap | **still from memory** |
->
-> Tables 1–4 in Clause 5 remain the authority and remain unread, so **no glyph may be defended as
-> standard-conformant** — but three of them are no longer guesses.
+> | **synchronization bar = two parallel horizontal lines, owned by the transition** | **`[CITED]`** — Table 2 **[9]**, *identical wording in both editions*; see §6 |
+> | **a selection (OR) has no symbol at all** | **`[CITED]`** — §6.2.3; **the single "OR rail" was invented and is deleted** |
+> | **pit transition = a transition with no succeeding step** | **`[CITED]`** — §6.3.4, which uses the term *"pit transition"* / *"Schlusstransition"* itself; see §3 |
+> | **transition = a line perpendicular to the link** | **`[CITED]`** — Table 2 **[7]** |
+> | **links horizontal/vertical, top→bottom, arrows required otherwise** | **`[CITED]`** — Table 3 **[10]**, **[11]** |
+> | **how a receptivity is *drawn*** | **explicitly out of scope** — Ed. 3.0 adds Table 2 [7] NOTE 4, *"Die Symbolik von Transitionen ist nicht Gegenstand dieser Norm"* (the symbolism of transitions is not the subject of this standard; they may be given textually, as boolean expressions, as logic diagrams…). **New in Ed. 3.0** — Ed. 2.0 has only three notes here. Our label-beside-the-tick rendering is therefore permitted by omission, not merely `[OURS]`. |
+> | **double-border initial step** | **`[SEARCHED]`** — Table 1 **[3]** names the symbol (*"dieser Schritt ist Teil der Anfangssituation"*) in **both** editions but describes it in neither; the glyph is a figure the extractor cannot render and `pdftoppm` is unavailable. Grepping *"double"* across all 110 pages of Ed. 2.0 finds only the **forcing order**'s double rectangle. Standard practice, not a quotable line. |
+> | `=1` receptivity · pit-transition **cap** styling | **`[OURS]`** — the *concepts* are cited; these particular renderings are our UI affordances |
 
 ---
 
@@ -243,11 +265,28 @@ save/run**, so a half-built chart can sit on the canvas:
 
 ## 3. The end of a branch
 
-**`[TITLE-ONLY]`** §6.3.4 is named *"End of a sequence by a pit transition"* — text unread; that a "pit
-transition" has no successor is read **off the title**. Corroborated by the clause list's shape
-(§6.3.1/§6.3.3 name *source* step/transition — a start with nothing before; §6.3.2/§6.3.4 name *pit*
-step/transition — an end with nothing after) and by ISA-88 item 1337's *"defined beginning and end"*,
-held in full.
+**Upgraded `[TITLE-ONLY]` → `[CITED]` on 2026-08-08.** The clause text is now in hand — **§6.3.4**, and
+it says precisely what the title promised. [IEC 60848:2002] §6.2.4, the same clause one edition back,
+in English:
+
+> ***"End of a sequence by a pit transition.** A pit transition is a transition, which has **no
+> succeeding step**.*
+> *NOTE 1 — When the pit transition is enabled and when its associated transition-condition is true,
+> **the only consequence of the clearing of the transition is the deactivation of the upstream
+> steps**."*
+
+[DIN EN 60848:2014-12] §6.3.4 carries it unchanged: *"Eine Schlusstransition ist eine Transition ohne
+nachfolgenden Schritt. … hat das Auslösen der Transition **allein die Deaktivierung vorgeschalteter
+Schritte** zur Folge."*
+
+Both halves of our design land on the clause: a branch ends at a **transition with no successor**, and
+firing it does nothing but **deactivate its from-steps** — which is exactly what `_fire` does when
+`to_ids` is empty. Even the name is the standard's own; `isPitTransition` was not our coinage after
+all. The sibling clause **§6.2.2** *"End of a sequence by a **pit step**"* (a step with no succeeding
+transition) is GRAFCET's other terminal, which our model does not offer — every branch of ours ends on
+a transition. That is a deliberate narrowing, not an oversight: ISA-88 item 1337's *"defined beginning
+and end"* is satisfied either way, and one terminal shape keeps `graphToTransitions` total.
+*(§6.2.2 in Ed. 2.0's numbering — see the edition table in §0.)*
 
 An unwired transition output **is** the end. No toggle, no gesture. Serialized as `to_ids: ["END"]`
 (the existing sentinel, `model.py:40`).
@@ -428,18 +467,44 @@ completes it in the same instant.
 
 ## 6. How the bars are drawn
 
-**`[OURS]`** **Nodes render their own bars.**
+**Rewritten 2026-08-08**, against the symbol tables. The previous version of this section was
+**half wrong** — see the correction note at the end.
 
-- A **transition** draws a short tick with one link, and a tick **plus a wide double bar spanning its
-  branches** with several.
-- A **step** grows a **single rail** beneath it when several transitions leave it.
+**`[CITED]` Table 2 [9] — "Synchronization preceding and/or succeeding a transition"**, in the
+identical words of both editions ([IEC 60848:2002], English):
 
-This reproduces GRAFCET's stacked-marks convention rather than fanning edges out of a point.
+> *"When several steps are connected to the same transition, the directed links from and/or to these
+> steps are grouped, to succeed or precede the synchronization symbol represented by **two parallel
+> horizontal lines**."*
+> *NOTE — The reference for the synchronization symbol is 9.2.2.5 of ISO 5807.*
 
-**Cost:** layout-aware rendering — a node must size its bar from where its branches sit. React Flow
-gives handles, not spans, so this is real work in `FlowNodes.tsx`.
+[DIN EN 60848:2014-12]: *"…dem Synchronisierungssymbol, **dargestellt durch zwei parallele horizontale
+Linien**, zu folgen bzw. voranzugehen."*
 
-**Glyphs unverified** — see the `BLOCKED ON STANDARD` box in §0.
+So the symbol belongs to the **transition**, on whichever side carries several steps — succeeding
+only (§6.2.6, activation of parallel sequences), preceding only (§6.2.7, synchronization of
+sequences), or both at once (§6.2.8). It is **two lines**, always: one symbol, not a family.
+
+**`[CITED]` A step draws nothing.** §6.2.3: *"Diese Struktur wird durch **ebenso viele gleichzeitig
+freigegebene Transitionen** gekennzeichnet, **wie es mögliche Abläufe gibt**"* — Ed. 2.0's English,
+*"represented by as many simultaneously enabled transitions as possible evolutions."* The fan-out of
+transitions **is** the notation. GRAFCET gives a selection no glyph at all.
+
+**Orientation `[CITED]`.** Table 3 [10] makes links horizontal or vertical; [11] fixes the convention
+top→bottom and requires that *"arrows **shall** be used if this convention is not respected"*. Our
+canvas runs **left→right** and draws an arrowhead on every edge (`RecipeBuilder.EDGE`,
+`MarkerType.ArrowClosed`) — which is exactly the deviation [11] sanctions. The symbol stays
+perpendicular to the link, so [9]'s "horizontal" lines become vertical with our flow.
+
+**Cost:** layout-aware rendering — a transition must size its bar from where its steps sit. React Flow
+gives handles, not spans, so this is real work in `recipeGraph.barSpans` + `FlowNodes.tsx`.
+
+> **Correction, 2026-08-08.** This section previously read: *"`[OURS]` Nodes render their own bars…
+> a step grows a **single rail** when several transitions leave it"*, flagged unverified against the
+> §0 block. With the tables read, the AND bar is confirmed (and now `[CITED]`) but **the OR rail was
+> invented** — it does not exist in IEC 60848. It shipped in unit 10 and was deleted the same week;
+> `barSpans` now returns entries for transitions only. The lesson is Rule 2's, again: the glyph came
+> from memory at write-time, and the `BLOCKED ON STANDARD` note recorded the risk without stopping it.
 
 ---
 
@@ -462,21 +527,48 @@ select a STEP       →  [+ selection branch] enabled  → OR, adds another outg
 
 ## 8. OR branch arbitration — priority now, exclusivity lint later
 
-**`[SEARCHED]`** — secondary sources only; **§6.2.3 remains unread**. Converging across
-[maxicours](https://www.maxicours.com/se/cours/grafcet-avec-selections-de-sequences/) and
-[PLC-HMI-SCADAS](https://www.plc-hmi-scadas.com/en/blog/grafcet-guia-completa-diseno-automatizacion/):
+**Upgraded `[SEARCHED]` → `[CITED]` on 2026-08-08**, and the secondary sources turned out to
+**overstate** the standard. The clause is **§6.2.3**, and this document's reference to it was right all
+along — only the text was missing. [IEC 60848:2002] §6.1.3, English:
 
-- **GRAFCET requires** the branch receptivities to be mutually exclusive and, if they are not, declares
-  the chart *faulty and indeterminate*. **It does not arbitrate.**
-- **IEC 61131-3 SFC does** arbitrate, via **user-defined priority between branches**.
+> *NOTE — Exclusive activation of a selected sequence **is not guaranteed from the structure**. The
+> designer **should** ensure that the timing, logical or mechanical aspects of the transition-conditions
+> are mutually exclusive.*
+
+> **The two editions differ in force here.** [DIN EN 60848:2014-12] §6.2.3 reads *"Der Entwickler
+> **muss** sicherstellen, dass die Transitionsbedingungen … untereinander exklusiv sind"* — **must**,
+> where Ed. 2.0's English says **should**. Whether that is a real strengthening in Ed. 3.0 or DIN's
+> translation of "should" cannot be told without the **English** Ed. 3.0, which we do not have. Treat
+> the duty as **binding** — it is the stricter reading, and it is the governing edition's word.
+
+What the secondary sources got wrong: they reported that GRAFCET *"declares the chart faulty and
+indeterminate"*. It does not. It says **"should"**, places the duty on the designer, and offers two
+worked examples of discharging it:
+
+- **EXAMPLE 1** — receptivities `a·b̄` and `ā·b`: logical exclusion. *"If 'a' and 'b' are simultaneously
+  true when step 5 is active, **no transition may be cleared**."* Contention resolves to **stall**, not
+  to a fault.
+- **EXAMPLE 2 — "Priority sequence" / "Ablauf mit Priorität."** Receptivities `a` and `ā·b`: *"In
+  diesem Beispiel wird der Transition von 5 nach 6 **Priorität** eingeräumt, die ausgelöst wird, wenn
+  'a' den Wert TRUE hat."* **The standard itself expresses branch priority — inside the
+  receptivities**, in both editions. (The overbars are lost in text extraction; they are recoverable
+  from the prose, which is why this is quoted rather than transcribed.)
+
+- **IEC 61131-3 SFC** additionally arbitrates via **user-defined priority between branches**.
 - IEC 60848 **Annex C** exists to relate the two languages.
+
+**This narrows the gap.** Our position below is not "GRAFCET refuses and we resolve anyway" — GRAFCET
+sanctions priority, it just encodes it in the receptivity rather than in the chart's structure. Ours
+remains a **deviation in mechanism**, not in intent.
 
 **`[OURS]` Adopt SFC arbitration — explicit, visible branch priority.** A step's outgoing transitions
 are walked in priority order and **at most one fires**. Exactly one branch is taken; indeterminacy is
 impossible.
 
-- **Journal it as SFC arbitration, not GRAFCET conformance.** GRAFCET's own answer is "the chart is
-  faulty"; we resolve rather than refuse.
+- **Journal it as SFC arbitration, not GRAFCET conformance.** GRAFCET's own answer is that exclusivity
+  is the designer's duty, expressed *in the receptivities* (§6.2.3 EXAMPLE 2); we hoist the same intent
+  into the chart so it is visible and cannot be forgotten. *(Wording corrected 2026-08-08 — this line
+  used to say GRAFCET calls such a chart "faulty", which the clause does not.)*
 - **No model change.** `MasterRecipe.transitions` is already an ordered list — **priority *is* that
   order.** We surface what exists as a visible, draggable ①②③, instead of an invisible artefact of array
   position that reshuffles on re-save.
@@ -569,11 +661,15 @@ behaviour **and** adding an explicit initial-step declaration to `MasterRecipe` 
 
 Everything below blocks nothing.
 
-1. **`BLOCKED ON STANDARD`** — the §5/§6 glyphs (§0). **Narrowed 2026-08-05:** Figure 2 was rendered
-   directly, so the **double-border initial step** and the **transition-as-a-tick-across-the-link** are
-   now seen rather than remembered (still `[DERIVED]` — Tables 1–4 remain the authority and remain
-   unread). The **branch bars**, the **`=1` receptivity** and the **pit-transition cap** are still
-   purely from memory.
+1. ~~**`BLOCKED ON STANDARD`** — the §5/§6 glyphs (§0).~~ **CLOSED 2026-08-08.** The governing edition
+   is in the repo's standards folder in full (**DIN EN 60848:2014-12 = EN/IEC 60848:2013 Ed. 3.0**),
+   and **IEC 60848:2002 Ed. 2.0** alongside it. Tables 1–3 and all of Clause 6 are read in both; they
+   agree on every symbol we use. Outcome: the AND bar, the pit transition, the transition tick and the
+   link conventions are `[CITED]`; **the OR rail was invented and has been deleted**; the initial
+   step's double border stays `[SEARCHED]` (its glyph is a figure we cannot render). One residue,
+   not blocking: the **`=1` receptivity** rendering and the **pit-transition cap** styling remain
+   `[OURS]` UI affordances — and Ed. 3.0's Table 2 [7] NOTE 4 puts transition *symbolism* outside the
+   standard's scope anyway (§0), so there is nothing left to conform to there.
 2. **The OR exclusivity lint** (§8) — deferred deliberately; purely additive.
 3. **`Not` in the condition union** — §4.3.3 makes the receptivity a boolean expression; `And`/`Or`
    without `Not` is an incomplete algebra ("advance while *not* HELD" is unwritable).
