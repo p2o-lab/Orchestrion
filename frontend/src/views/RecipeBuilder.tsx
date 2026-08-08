@@ -18,12 +18,14 @@ import '@xyflow/react/dist/style.css'
 import { api } from '../api/client'
 import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeHeader, RecipeStep } from '../api/types'
 import {
+  barSpans,
   defaultCondition,
   graphToTransitions,
   initialStepId,
   isPitTransition,
   recipeToGraph,
   transitionPositions,
+  type BarSpan,
   type GraphEdge,
   type GraphNode,
 } from '../ui/recipeGraph'
@@ -177,20 +179,26 @@ export function RecipeBuilder() {
   // So they are recomputed on every graph change — and written back only when something
   // actually differs, or the state update would retrigger this effect for ever.
   useEffect(() => {
+    const graphNodes = nodes.map(toGraphNode)
     const graphEdges = edges.map(toGraphEdge)
-    const initial = initialStepId(nodes.map(toGraphNode), graphEdges)
+    const initial = initialStepId(graphNodes, graphEdges)
+    // Bars span *where the branches sit* (§6), so they must be recomputed as nodes move —
+    // dragging a branch step wider has to widen the bar with it.
+    const live = new Map(nodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]))
+    const bars = barSpans(graphNodes, graphEdges, live)
+    const same = (a?: BarSpan, b?: BarSpan) =>
+      a === b || (!!a && !!b && a.offsetY === b.offsetY && a.height === b.height && a.count === b.count)
+
     let changed = false
     const next = nodes.map((n) => {
-      if (n.type === 'step') {
-        const want = n.id === initial
-        if ((n.data as StepNodeData).isInitial === want) return n
-        changed = true
-        return { ...n, data: { ...n.data, isInitial: want } }
-      }
-      const want = isPitTransition(n.id, graphEdges)
-      if ((n.data as TransitionNodeData).isPit === want) return n
+      const bar = bars.get(n.id)
+      const d = n.data as StepNodeData & TransitionNodeData
+      const wantFlag = n.type === 'step' ? n.id === initial : isPitTransition(n.id, graphEdges)
+      const flagKey = n.type === 'step' ? 'isInitial' : 'isPit'
+      if (d[flagKey] === wantFlag && same(d.barIn, bar?.incoming) && same(d.barOut, bar?.outgoing))
+        return n
       changed = true
-      return { ...n, data: { ...n.data, isPit: want } }
+      return { ...n, data: { ...n.data, [flagKey]: wantFlag, barIn: bar?.incoming, barOut: bar?.outgoing } }
     })
     if (changed) setNodes(next)
   }, [nodes, edges, setNodes])

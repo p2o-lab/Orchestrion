@@ -227,6 +227,72 @@ export function transitionPositions(
   return positions
 }
 
+/** One branch bar: where to draw it relative to its own node, and how far it reaches. */
+export interface BarSpan {
+  /** Vertical centre of the span, relative to the owning node's y. */
+  offsetY: number
+  /** Total height to draw, in canvas px. Never below `MIN_BAR_HEIGHT`. */
+  height: number
+  /** How many branches it gathers — ≥2, or there would be no bar. */
+  count: number
+}
+
+export interface NodeBars {
+  /** Several links arriving — a convergence. */
+  incoming?: BarSpan
+  /** Several links leaving — a divergence. */
+  outgoing?: BarSpan
+}
+
+/** So a bar is still visible when its branches happen to sit at the same height. */
+export const MIN_BAR_HEIGHT = 28
+
+/**
+ * Where each node's branch bars go — chart §6.
+ *
+ * **The bars are drawing, not structure.** AND/OR are link multiplicity (§4.3.2), so a bar is
+ * simply how a node with more than one link on a side is *drawn*: a transition gathering
+ * several steps is an AND (double bar), a step opening onto several transitions is an OR
+ * (single rail). Nothing here changes the graph — delete this function and the recipe is
+ * identical, just uglier. Which is exactly why the earlier bar-*nodes* were wrong.
+ *
+ * Flow runs left→right, so branches fan out vertically and a bar spans their **y** range.
+ * Computed from positions because React Flow gives handles, not spans (§6's stated cost).
+ *
+ * ⚠ **`[OURS]`, and unverified.** IEC 60848 §5's Tables 1-4 — the symbol tables — were never
+ * read (`BLOCKED ON STANDARD`, chart §0). The *structures* are cited; that a divergence is
+ * drawn as a **double** bar and a selection as a **single** rail is from memory. No glyph here
+ * may be defended as standard-conformant.
+ */
+export function barSpans(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  positions: Map<string, { x: number; y: number }>,
+): Map<string, NodeBars> {
+  const yOf = (id: string) => positions.get(id)?.y
+  const bars = new Map<string, NodeBars>()
+
+  const spanOf = (ownerId: string, branchIds: string[]): BarSpan | undefined => {
+    if (branchIds.length < 2) return undefined
+    const ys = branchIds.map(yOf).filter((y): y is number => y !== undefined)
+    if (ys.length < 2) return undefined
+    const [top, bottom] = [Math.min(...ys), Math.max(...ys)]
+    const ownY = yOf(ownerId) ?? (top + bottom) / 2
+    return {
+      offsetY: (top + bottom) / 2 - ownY,
+      height: Math.max(bottom - top, MIN_BAR_HEIGHT),
+      count: branchIds.length,
+    }
+  }
+
+  for (const node of nodes) {
+    const incoming = spanOf(node.id, edges.filter((e) => e.target === node.id).map((e) => e.source))
+    const outgoing = spanOf(node.id, edges.filter((e) => e.source === node.id).map((e) => e.target))
+    if (incoming || outgoing) bars.set(node.id, { incoming, outgoing })
+  }
+  return bars
+}
+
 /** Rebuild the persisted steps from the canvas, keeping their positions. */
 export function graphToSteps(nodes: GraphNode[]): RecipeStep[] {
   return nodes

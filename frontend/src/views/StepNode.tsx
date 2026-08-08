@@ -1,5 +1,22 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Icon } from '../ui/icons'
+import type { BarSpan } from '../ui/recipeGraph'
+
+/** The OR (selection) rail — a **single** line, against AND's double (chart §6).
+ *  ⚠ `[OURS]`: IEC 60848 §5's symbol tables are unread, so single-vs-double is from memory. */
+function SelectionRail({ span, side }: { span: BarSpan; side: 'left' | 'right' }) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute top-1/2 w-[3px] rounded-full bg-[#a78bfa]"
+      style={{
+        [side]: -14,
+        height: span.height,
+        transform: `translateY(calc(-50% + ${span.offsetY}px))`,
+      }}
+    />
+  )
+}
 
 // A recipe step, rendered as our own Tailwind card (React Flow only positions/connects it).
 // `data` carries both the display strings and the underlying step fields, so the builder can
@@ -16,6 +33,10 @@ export interface StepNodeData {
    *  beginning). GRAFCET draws it with a **double border**, seen in IEC 60848 Figure 2.
    *  There is no START node; the border *is* the marker (chart §1, §2). */
   isInitial?: boolean
+  /** The OR rails this step draws when several transitions leave it (divergence) or arrive
+   *  (convergence) — §6. Computed by `recipeGraph.barSpans`; decoration, never structure. */
+  barIn?: BarSpan
+  barOut?: BarSpan
   [key: string]: unknown
 }
 
@@ -23,7 +44,7 @@ export function StepNode({ data, selected }: NodeProps) {
   const d = data as StepNodeData
   return (
     <div
-      className={`min-w-[168px] bg-elev px-3.5 py-3 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.7)] transition ${
+      className={`relative min-w-[168px] bg-elev px-3.5 py-3 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.7)] transition ${
         d.isInitial
           ? // the double-bordered initial step: an inner rule inset from the outer edge
             'rounded-xl border-2 border-double border-st-completed ring-2 ring-st-completed/20'
@@ -32,6 +53,8 @@ export function StepNode({ data, selected }: NodeProps) {
             : 'rounded-xl border border-edge-strong'
       }`}
     >
+      {d.barIn ? <SelectionRail span={d.barIn} side="left" /> : null}
+      {d.barOut ? <SelectionRail span={d.barOut} side="right" /> : null}
       <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-accent" />
       <div className="flex items-center gap-2">
         <span className="grid h-6 w-6 place-items-center rounded-md bg-accent/15 text-accent">

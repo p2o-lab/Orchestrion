@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest'
 import type { Condition, MasterRecipe } from '../api/types'
 import {
   END_ID,
+  MIN_BAR_HEIGHT,
+  barSpans,
   defaultCondition,
   graphToSteps,
   graphToTransitions,
@@ -241,6 +243,64 @@ describe('the default receptivity depends on the procedure kind (§4)', () => {
     // §5(b): a continuous step may feed an AND-join, which is exactly where `=1` would
     // otherwise have been the default and would complete it the instant it started.
     expect(defaultCondition(['sA', 'sB'], (id) => id !== 'sA')).toBeNull()
+  })
+})
+
+describe('branch bars are drawn from link count (§6)', () => {
+  const at = (entries: [string, number, number][]) =>
+    new Map(entries.map(([id, x, y]) => [id, { x, y }]))
+
+  it('gives a transition with several succeeding steps an outgoing bar (AND divergence)', () => {
+    const nodes = [step('s1'), transition('t1'), step('s2'), step('s3')]
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')]
+    const bars = barSpans(nodes, edges, at([['s1', 0, 100], ['t1', 100, 100], ['s2', 200, 40], ['s3', 200, 160]]))
+    expect(bars.get('t1')?.outgoing).toEqual({ offsetY: 0, height: 120, count: 2 })
+    expect(bars.get('t1')?.incoming).toBeUndefined()   // only one step feeds it
+  })
+
+  it('gives a transition with several preceding steps an incoming bar (AND convergence)', () => {
+    const nodes = [step('s1'), step('s2'), transition('t1'), step('s3')]
+    const edges = [link('s1', 't1'), link('s2', 't1'), link('t1', 's3')]
+    const bars = barSpans(nodes, edges, at([['s1', 0, 0], ['s2', 0, 200], ['t1', 100, 100], ['s3', 200, 100]]))
+    expect(bars.get('t1')?.incoming).toEqual({ offsetY: 0, height: 200, count: 2 })
+  })
+
+  it('gives a step with several succeeding transitions a rail (OR divergence)', () => {
+    const nodes = [step('s1'), transition('t1'), transition('t2')]
+    const edges = [link('s1', 't1'), link('s1', 't2')]
+    const bars = barSpans(nodes, edges, at([['s1', 0, 100], ['t1', 100, 50], ['t2', 100, 150]]))
+    expect(bars.get('s1')?.outgoing).toEqual({ offsetY: 0, height: 100, count: 2 })
+  })
+
+  it('offsets the bar when the branches are not centred on their node', () => {
+    const nodes = [step('s1'), transition('t1'), step('s2'), step('s3')]
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')]
+    // branches at y 200 and 300 → centre 250, while the transition sits at 100
+    const bars = barSpans(nodes, edges, at([['s1', 0, 100], ['t1', 100, 100], ['s2', 200, 200], ['s3', 200, 300]]))
+    expect(bars.get('t1')?.outgoing).toEqual({ offsetY: 150, height: 100, count: 2 })
+  })
+
+  it('keeps a minimum height when branches sit at the same y', () => {
+    const nodes = [step('s1'), transition('t1'), step('s2'), step('s3')]
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')]
+    const bars = barSpans(nodes, edges, at([['s1', 0, 0], ['t1', 100, 0], ['s2', 200, 0], ['s3', 200, 0]]))
+    expect(bars.get('t1')?.outgoing?.height).toBe(MIN_BAR_HEIGHT)
+  })
+
+  it('draws no bar at all for a plain series — one link each side', () => {
+    const nodes = [step('s1'), transition('t1'), step('s2')]
+    const edges = [link('s1', 't1'), link('t1', 's2')]
+    expect(barSpans(nodes, edges, at([['s1', 0, 0], ['t1', 100, 0], ['s2', 200, 0]])).size).toBe(0)
+  })
+
+  it('is pure decoration — it never changes the transitions', () => {
+    // The bars are how multiplicity is *drawn* (§4.3.2); deleting them would leave the recipe
+    // identical. This is the invariant the bar-*node* model could not hold.
+    const nodes = [step('s1'), transition('t1'), step('s2'), step('s3')]
+    const edges = [link('s1', 't1'), link('t1', 's2'), link('t1', 's3')]
+    const before = graphToTransitions(nodes, edges).transitions
+    barSpans(nodes, edges, at([['s1', 0, 0], ['t1', 100, 0], ['s2', 200, 0], ['s3', 200, 90]]))
+    expect(graphToTransitions(nodes, edges).transitions).toEqual(before)
   })
 })
 

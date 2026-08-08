@@ -1,5 +1,37 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { Condition } from '../api/types'
+import type { BarSpan } from '../ui/recipeGraph'
+
+/**
+ * A branch bar — chart §6. Drawn by the node that owns it, spanning its branches, which is
+ * GRAFCET's stacked-marks convention rather than fanning edges out of a point.
+ *
+ * `lines={2}` is the AND (simultaneous) bar a transition draws; `lines={1}` is the OR
+ * (selection) rail a step draws. ⚠ **`[OURS]` and unverified** — IEC 60848 §5's symbol tables
+ * were never read (`BLOCKED ON STANDARD`), so double-vs-single is from memory.
+ */
+function BranchBar({ span, side, lines, tone }: {
+  span: BarSpan
+  side: 'left' | 'right'
+  lines: 1 | 2
+  tone: string
+}) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute top-1/2 flex gap-[3px]"
+      style={{
+        [side]: -14,
+        height: span.height,
+        transform: `translateY(calc(-50% + ${span.offsetY}px))`,
+      }}
+    >
+      {Array.from({ length: lines }).map((_, i) => (
+        <span key={i} className={`w-[3px] rounded-full ${tone}`} style={{ height: '100%' }} />
+      ))}
+    </span>
+  )
+}
 
 // The chart's transition node — `docs/POL_Recipe_Chart_GRAFCET.md` §1 and §4.
 //
@@ -22,6 +54,10 @@ export interface TransitionNodeData {
   /** A continuous from-step needs a real receptivity; `Always` would complete it instantly
    *  (§4). Until the author supplies one the transition is visibly incomplete. */
   needsCondition?: boolean
+  /** The AND bars this transition draws when it gathers or opens onto several steps (§6).
+   *  Computed by `recipeGraph.barSpans` — decoration over link multiplicity, never structure. */
+  barIn?: BarSpan
+  barOut?: BarSpan
   [key: string]: unknown
 }
 
@@ -29,7 +65,10 @@ export function TransitionNode({ data, selected }: NodeProps) {
   const d = data as TransitionNodeData
   const set = Boolean(d.label)
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-2">
+      {/* AND — simultaneous. A double bar spanning the steps it synchronises or launches. */}
+      {d.barIn ? <BranchBar span={d.barIn} side="left" lines={2} tone="bg-accent" /> : null}
+      {d.barOut ? <BranchBar span={d.barOut} side="right" lines={2} tone="bg-accent" /> : null}
       <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-warn" />
       {/* the receptivity bar — a tick across the directed link */}
       <div className={`h-9 w-[4px] rounded-full bg-warn ${selected ? 'ring-2 ring-warn/40' : ''}`} />
