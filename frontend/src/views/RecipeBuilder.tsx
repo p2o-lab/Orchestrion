@@ -29,6 +29,9 @@ import {
   type GraphEdge,
   type GraphNode,
 } from '../ui/recipeGraph'
+// `summarize` moved to `ui/conditions.ts` at unit 11a — it must recurse now that compounds
+// are authorable, and the tree logic is pure and tested there.
+import { summarize } from '../ui/conditions'
 import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
@@ -55,20 +58,6 @@ function nextStepId(ids: string[]): string {
   let n = 1
   while (used.has(`s${n}`)) n++
   return `s${n}`
-}
-
-function summarize(c: Condition): string {
-  switch (c.type) {
-    // GRAFCET draws the always-true receptivity as `=1`. Under the two gates that is the
-    // normal case for a self-completing step: completion is gate #1, so there is nothing
-    // for the author to add (chart §4).
-    case 'Always': return '=1'
-    case 'StateReached': return `✓ ${c.state}`
-    case 'ValueThreshold': return `${c.value_name} ${c.op} ${c.threshold}`
-    case 'Elapsed': return `after ${c.seconds}s`
-    case 'And': return 'ALL of…'
-    case 'Or': return 'ANY of…'
-  }
 }
 
 const arrow = (source: string, target: string, key: string): Edge => ({ id: key, source, target, ...EDGE })
@@ -450,6 +439,11 @@ export function RecipeBuilder() {
         <ConditionEditor
           peas={peas}
           initial={(editingTransition.data as TransitionNodeData).condition ?? DEFAULT_COND}
+          // `Always` is only offered when every preceding step ends by itself — on a
+          // continuous procedure the receptivity IS the completion criterion (chart §4/§5).
+          allowAlways={edges
+            .filter((e) => e.target === editingTransition.id)
+            .every((e) => stepIsSelfCompleting(e.source))}
           onClose={() => setEditingTransition(null)}
           onSave={(condition) => { updateTransitionCondition(editingTransition.id, condition); setEditingTransition(null) }}
         />
