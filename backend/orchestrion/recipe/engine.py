@@ -502,9 +502,13 @@ class RecipeEngine:
         # the first eligible transition to claim a step wins, and every later one competing
         # for it is skipped. Exactly one branch is taken, so an OR-divergence can never be
         # indeterminate — which is SFC arbitration ([IEC 61131-3]), **not** GRAFCET
-        # conformance: GRAFCET requires the branch receptivities to be mutually exclusive
-        # and calls a chart that is not "faulty and indeterminate". We resolve rather than
-        # refuse, and say so (chart §8). The exclusivity *lint* stays deferred — a chart
+        # conformance. Corrected 2026-08-08 once [IEC 60848:2013] §6.2.3 was actually read:
+        # GRAFCET does **not** call a non-exclusive chart "faulty and indeterminate" (that
+        # was a secondary source overstating it). It says exclusive activation "is not
+        # guaranteed from the structure" and puts the duty on the designer — and its own
+        # EXAMPLE 2, "Priority sequence", encodes priority inside the receptivities. So we
+        # hoist the same intent into the chart rather than contradicting the standard
+        # (chart §8). The exclusivity *lint* stays deferred — a chart
         # with overlapping branches still runs deterministically here, it just has a
         # silently dead branch, which is an authoring smell rather than a safety problem.
         consumed: set[str] = set()

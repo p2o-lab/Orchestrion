@@ -19,12 +19,14 @@ import { api } from '../api/client'
 import type { Condition, MasterRecipe, PeaDetail, RecipeDetail, RecipeHeader, RecipeStep } from '../api/types'
 import {
   barSpans,
+  branchRanks,
   branchSpawnPosition,
   defaultCondition,
   graphToTransitions,
   initialStepId,
   isPitTransition,
   recipeToGraph,
+  reprioritise,
   selectionBranchMayDefault,
   transitionPositions,
   type BarSpan,
@@ -40,6 +42,7 @@ import { Icon } from '../ui/icons'
 import { Button, Modal, Spinner } from '../ui/primitives'
 import { StepNode, type StepNodeData } from './StepNode'
 import { TransitionNode, type TransitionNodeData } from './FlowNodes'
+import { BranchPriority } from './branchPriority'
 import { ConditionEditor } from './ConditionEditor'
 import { StepEditor } from './StepEditor'
 import { RecipeSettings } from './RecipeSettings'
@@ -72,7 +75,8 @@ function toGraphNode(n: Node): GraphNode {
     const d = n.data as StepNodeData
     return { id: n.id, kind: 'step', pea_id: d.pea_id, service: d.service, procedure_id: d.procedure_id, params: d.params, x: n.position.x, y: n.position.y }
   }
-  return { id: n.id, kind: 'transition', condition: (n.data as TransitionNodeData).condition }
+  const d = n.data as TransitionNodeData
+  return { id: n.id, kind: 'transition', condition: d.condition, priority: d.priority }
 }
 const toGraphEdge = (e: Edge): GraphEdge => ({ source: e.source, target: e.target })
 
@@ -160,6 +164,9 @@ export function RecipeBuilder() {
           condition: n.condition,
           label: n.condition ? summarize(n.condition) : undefined,
           isPit: isPitTransition(n.id, g.edges),
+          // The saved list index, carried onto the canvas so a re-save reproduces the
+          // author's branch order instead of reshuffling it (chart §8).
+          priority: n.priority,
         } satisfies TransitionNodeData,
       }
     })
@@ -183,8 +190,13 @@ export function RecipeBuilder() {
     // dragging a branch step wider has to widen the bar with it.
     const live = new Map(nodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]))
     const bars = barSpans(graphNodes, graphEdges, live)
+    // The ①②③ badge is derived too: wiring a second transition off a step *creates* a
+    // selection, and deleting one dissolves it (chart §8).
+    const ranks = branchRanks(graphNodes, graphEdges)
     const same = (a?: BarSpan, b?: BarSpan) =>
       a === b || (!!a && !!b && a.offsetY === b.offsetY && a.height === b.height && a.count === b.count)
+    const sameRank = (a?: { rank: number; of: number }, b?: { rank: number; of: number }) =>
+      a === b || (!!a && !!b && a.rank === b.rank && a.of === b.of)
 
     let changed = false
     const next = nodes.map((n) => {
@@ -192,10 +204,20 @@ export function RecipeBuilder() {
       const d = n.data as StepNodeData & TransitionNodeData
       const wantFlag = n.type === 'step' ? n.id === initial : isPitTransition(n.id, graphEdges)
       const flagKey = n.type === 'step' ? 'isInitial' : 'isPit'
-      if (d[flagKey] === wantFlag && same(d.barIn, bar?.incoming) && same(d.barOut, bar?.outgoing))
+      const found = ranks.get(n.id)
+      const wantRank = found ? { rank: found.rank, of: found.of } : undefined
+      if (
+        d[flagKey] === wantFlag &&
+        same(d.barIn, bar?.incoming) &&
+        same(d.barOut, bar?.outgoing) &&
+        sameRank(d.rank, wantRank)
+      )
         return n
       changed = true
-      return { ...n, data: { ...n.data, [flagKey]: wantFlag, barIn: bar?.incoming, barOut: bar?.outgoing } }
+      return {
+        ...n,
+        data: { ...n.data, [flagKey]: wantFlag, barIn: bar?.incoming, barOut: bar?.outgoing, rank: wantRank },
+      }
     })
     if (changed) setNodes(next)
   }, [nodes, edges, setNodes])
@@ -343,6 +365,28 @@ export function RecipeBuilder() {
     setSaved(false)
   }
 
+  /** Raise or lower a branch's priority — chart §8. Swaps two `priority` keys, which changes
+   *  where the two transitions land in `MasterRecipe.transitions`, which is exactly what the
+   *  engine arbitrates on. Nothing else in the chart moves. */
+  const moveBranch = useCallback(
+    (transitionId: string, direction: 'up' | 'down') => {
+      const graphEdges = edges.map(toGraphEdge)
+      setNodes((ns) => {
+        const moved = reprioritise(ns.map(toGraphNode), graphEdges, transitionId, direction)
+        const byId = new Map(moved.map((n) => [n.id, n]))
+        return ns.map((n) => {
+          if (n.type !== 'transition') return n
+          const next = byId.get(n.id)
+          const d = n.data as TransitionNodeData
+          if (!next || d.priority === next.priority) return n
+          return { ...n, data: { ...n.data, priority: next.priority } }
+        })
+      })
+      setSaved(false)
+    },
+    [edges, setNodes],
+  )
+
   function onBranch(action: BranchAction) {
     const sel = nodes.filter((n) => n.selected)
     if (sel.length !== 1) return
@@ -444,7 +488,7 @@ export function RecipeBuilder() {
             {error ? <p className="text-sm text-danger">{error}</p> : <Spinner className="h-6 w-6" />}
           </div>
         ) : (
-          <>
+          <BranchPriority.Provider value={moveBranch}>
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -500,7 +544,7 @@ export function RecipeBuilder() {
                   <p className="text-sm text-faint">Drag a <span className="text-dim">Step</span> from the top, then a <span className="text-warn">Transition</span> between steps.</p>
                 </div>
               )}
-            </>
+            </BranchPriority.Provider>
           )}
         </div>
 

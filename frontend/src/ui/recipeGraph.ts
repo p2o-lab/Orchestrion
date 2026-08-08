@@ -53,6 +53,12 @@ export interface GraphNode {
   y?: number | null
   /** transition only — the receptivity */
   condition?: Condition
+  /** transition only — **OR-branch priority**, chart §8. Not a wire field: `Transition` has
+   *  none, because priority *is* the position in `MasterRecipe.transitions` and the engine
+   *  reads it as such (`engine.py` — `ready` is walked in list-index order, first claim on a
+   *  step wins). This is the canvas's sort key for producing that list, derived from the index
+   *  on load and honoured by `graphToTransitions` on save. Absent = "after everything ranked". */
+  priority?: number
 }
 
 export interface GraphEdge {
@@ -102,8 +108,19 @@ export function graphToTransitions(
       }
   }
 
+  // **Emission order is the priority** (chart §8): the engine walks `MasterRecipe.transitions`
+  // by index and the first eligible one to claim a step wins. Before unit 11c this was
+  // whatever order the node array happened to hold — an invisible artefact. Now it is the
+  // explicit `priority` key, stable-sorted so unranked transitions keep their relative order
+  // and land after the ranked ones.
+  const ordered = nodes
+    .filter((n) => n.kind === 'transition')
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (a.n.priority ?? Infinity) - (b.n.priority ?? Infinity) || a.i - b.i)
+    .map(({ n }) => n)
+
   const transitions: Transition[] = []
-  for (const tr of nodes.filter((n) => n.kind === 'transition')) {
+  for (const tr of ordered) {
     const from = uniq(intoOf(tr.id))
     if (from.length === 0)
       return {
@@ -138,7 +155,9 @@ export function recipeToGraph(recipe: MasterRecipe): { nodes: GraphNode[]; edges
 
   recipe.transitions.forEach((t, i) => {
     const id = `t${i + 1}`
-    nodes.push({ id, kind: 'transition', condition: t.condition })
+    // The index *is* the priority (chart §8) — carry it explicitly so the canvas can show and
+    // change it, and so a re-save reproduces the order instead of reshuffling it.
+    nodes.push({ id, kind: 'transition', condition: t.condition, priority: i })
     t.from_ids.forEach((f) => edges.push({ source: f, target: id }))
     // END is a sentinel, not a node — a branch that ends simply leaves the output unwired,
     // and the canvas draws that as a cap (§3).
@@ -378,6 +397,99 @@ export function branchSpawnPosition(
  */
 export function selectionBranchMayDefault(stepId: string, edges: GraphEdge[]): boolean {
   return edges.filter((e) => e.source === stepId).length === 0
+}
+
+// ── OR-branch priority — chart §8 ─────────────────────────────────────────────────────────
+//
+// Priority only *means* anything between transitions competing for the same step: the engine
+// walks the list in order and the first eligible transition to claim a step wins, so two
+// transitions that share no from-step never race. The badge therefore ranks a transition
+// **within its selection group**, not globally — ①②③ off one step, starting again at ① off
+// the next.
+//
+// GRAFCET itself expresses priority *inside the receptivities* — §6.2.3 EXAMPLE 2, `a` versus
+// `ā·b`. We cannot write that (`Not` is missing from the condition union — see
+// `ui/conditions.ts`), so we hoist the same intent into the chart as an explicit rank. That is
+// SFC arbitration ([IEC 61131-3]) rather than GRAFCET conformance, and §8 says so.
+
+export interface BranchRank {
+  /** 1-based position among the transitions leaving this step. */
+  rank: number
+  /** How many transitions leave it — always ≥2, or there is no selection to rank. */
+  of: number
+  /** The step whose selection group this rank belongs to. */
+  stepId: string
+}
+
+/** Transitions leaving `stepId`, in priority order. */
+function outgoingInPriorityOrder(stepId: string, nodes: GraphNode[], edges: GraphEdge[]): GraphNode[] {
+  const ids = new Set(edges.filter((e) => e.source === stepId).map((e) => e.target))
+  return nodes
+    .filter((n) => n.kind === 'transition' && ids.has(n.id))
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (a.n.priority ?? Infinity) - (b.n.priority ?? Infinity) || a.i - b.i)
+    .map(({ n }) => n)
+}
+
+/**
+ * The ①②③ each branching transition wears. Only transitions in a **selection** — one of
+ * several leaving a common step (§6.2.3) — get one; a plain series has nothing to arbitrate.
+ *
+ * A transition with several from-steps (an AND convergence) could sit in more than one
+ * selection group. It is ranked in the group of its **lowest-sorted** from-step, deterministic
+ * so the badge never flickers, and the case is vanishingly rare in practice — an author who
+ * builds it can still see the other group's ordering from the sibling badges.
+ */
+export function branchRanks(nodes: GraphNode[], edges: GraphEdge[]): Map<string, BranchRank> {
+  const ranks = new Map<string, BranchRank>()
+  const steps = nodes.filter((n) => n.kind === 'step').map((n) => n.id).sort()
+
+  for (const stepId of steps) {
+    const group = outgoingInPriorityOrder(stepId, nodes, edges)
+    if (group.length < 2) continue
+    group.forEach((tr, i) => {
+      if (ranks.has(tr.id)) return // already ranked by a lower-sorted from-step
+      ranks.set(tr.id, { rank: i + 1, of: group.length, stepId })
+    })
+  }
+  return ranks
+}
+
+/**
+ * Move a transition one place up or down within its selection group.
+ *
+ * Implemented as a **swap of the two `priority` keys**, not a renumbering: only the relative
+ * order inside the group matters to the engine, so swapping leaves every other transition's
+ * position — and therefore every other group's arbitration — untouched.
+ *
+ * Returns `nodes` unchanged when the move is not possible (no rank, already at the end), so
+ * the caller can wire it to a button without guarding first.
+ */
+export function reprioritise(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  transitionId: string,
+  direction: 'up' | 'down',
+): GraphNode[] {
+  const rank = branchRanks(nodes, edges).get(transitionId)
+  if (rank === undefined) return nodes
+
+  const group = outgoingInPriorityOrder(rank.stepId, nodes, edges)
+  const index = group.findIndex((n) => n.id === transitionId)
+  const target = direction === 'up' ? index - 1 : index + 1
+  if (target < 0 || target >= group.length) return nodes
+
+  // Both may be unranked (`priority` absent) on a chart built this session; fall back to the
+  // group position so a swap still produces a definite, distinct order.
+  const a = group[index]
+  const b = group[target]
+  const pa = a.priority ?? index
+  const pb = b.priority ?? target
+  if (pa === pb) return nodes
+
+  return nodes.map((n) =>
+    n.id === a.id ? { ...n, priority: pb } : n.id === b.id ? { ...n, priority: pa } : n,
+  )
 }
 
 /** Rebuild the persisted steps from the canvas, keeping their positions. */

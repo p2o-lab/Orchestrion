@@ -15,8 +15,10 @@ import {
   MIN_BAR_HEIGHT,
   barSpans,
   branchActionFor,
+  branchRanks,
   branchSpawnPosition,
   defaultCondition,
+  reprioritise,
   selectionBranchMayDefault,
   graphToSteps,
   graphToTransitions,
@@ -411,6 +413,168 @@ describe('branch authoring — chart §7', () => {
 
     it('counts only that step’s own outgoing links', () => {
       expect(selectionBranchMayDefault('s1', [link('s2', 't1'), link('t9', 's1')])).toBe(true)
+    })
+  })
+})
+
+describe('OR-branch priority — chart §8', () => {
+  /** s1 branches to t1 and t2; s2 is a plain series through t3. */
+  const selectionGraph = (): { nodes: GraphNode[]; edges: GraphEdge[] } => ({
+    nodes: [
+      step('s1'), step('s2'),
+      { ...transition('t1'), priority: 0 },
+      { ...transition('t2'), priority: 1 },
+      { ...transition('t3'), priority: 2 },
+    ],
+    edges: [link('s1', 't1'), link('s1', 't2'), link('s2', 't3')],
+  })
+
+  describe('only a real selection gets a rank', () => {
+    it('ranks the two transitions leaving one step', () => {
+      const { nodes, edges } = selectionGraph()
+      const ranks = branchRanks(nodes, edges)
+      expect(ranks.get('t1')).toEqual({ rank: 1, of: 2, stepId: 's1' })
+      expect(ranks.get('t2')).toEqual({ rank: 2, of: 2, stepId: 's1' })
+    })
+
+    it('gives a plain series no rank — there is nothing to arbitrate', () => {
+      const { nodes, edges } = selectionGraph()
+      expect(branchRanks(nodes, edges).has('t3')).toBe(false)
+    })
+
+    it('restarts at ① for each step, because priority is per selection group', () => {
+      const nodes: GraphNode[] = [
+        step('s1'), step('s2'),
+        { ...transition('a1'), priority: 0 }, { ...transition('a2'), priority: 1 },
+        { ...transition('b1'), priority: 2 }, { ...transition('b2'), priority: 3 },
+      ]
+      const edges = [link('s1', 'a1'), link('s1', 'a2'), link('s2', 'b1'), link('s2', 'b2')]
+      const ranks = branchRanks(nodes, edges)
+      expect(ranks.get('a1')!.rank).toBe(1)
+      expect(ranks.get('b1')!.rank).toBe(1) // not 3
+    })
+
+    it('ranks by priority, not by node-array position', () => {
+      const nodes: GraphNode[] = [
+        step('s1'),
+        { ...transition('t1'), priority: 5 },
+        { ...transition('t2'), priority: 2 },
+      ]
+      const edges = [link('s1', 't1'), link('s1', 't2')]
+      const ranks = branchRanks(nodes, edges)
+      expect(ranks.get('t2')!.rank).toBe(1)
+      expect(ranks.get('t1')!.rank).toBe(2)
+    })
+
+    it('ranks a multi-from transition once, under its lowest-sorted from-step', () => {
+      // An AND convergence can sit in two selection groups; the choice must be deterministic
+      // or the badge flickers between renders.
+      const nodes: GraphNode[] = [
+        step('sA'), step('sB'),
+        { ...transition('shared'), priority: 1 },
+        { ...transition('otherA'), priority: 0 },
+        { ...transition('otherB'), priority: 2 },
+      ]
+      const edges = [
+        link('sA', 'shared'), link('sB', 'shared'),
+        link('sA', 'otherA'), link('sB', 'otherB'),
+      ]
+      expect(branchRanks(nodes, edges).get('shared')).toEqual({ rank: 2, of: 2, stepId: 'sA' })
+    })
+  })
+
+  describe('reprioritise swaps two keys and leaves everything else alone', () => {
+    it('moves a branch up', () => {
+      const { nodes, edges } = selectionGraph()
+      const ranks = branchRanks(reprioritise(nodes, edges, 't2', 'up'), edges)
+      expect(ranks.get('t2')!.rank).toBe(1)
+      expect(ranks.get('t1')!.rank).toBe(2)
+    })
+
+    it('moves a branch down', () => {
+      const { nodes, edges } = selectionGraph()
+      expect(branchRanks(reprioritise(nodes, edges, 't1', 'down'), edges).get('t1')!.rank).toBe(2)
+    })
+
+    it('does not touch a transition outside the group', () => {
+      const { nodes, edges } = selectionGraph()
+      const next = reprioritise(nodes, edges, 't2', 'up')
+      expect(next.find((n) => n.id === 't3')!.priority).toBe(2)
+    })
+
+    it('refuses to move the first branch up, or the last one down', () => {
+      const { nodes, edges } = selectionGraph()
+      expect(reprioritise(nodes, edges, 't1', 'up')).toBe(nodes)
+      expect(reprioritise(nodes, edges, 't2', 'down')).toBe(nodes)
+    })
+
+    it('refuses to reorder something that has no rank', () => {
+      const { nodes, edges } = selectionGraph()
+      expect(reprioritise(nodes, edges, 't3', 'up')).toBe(nodes)
+    })
+
+    it('does not mutate the input', () => {
+      const { nodes, edges } = selectionGraph()
+      reprioritise(nodes, edges, 't2', 'up')
+      expect(nodes.find((n) => n.id === 't2')!.priority).toBe(1)
+    })
+  })
+
+  describe('priority reaches the engine as list order', () => {
+    it('emits transitions in priority order, not node order', () => {
+      // `engine.py` walks MasterRecipe.transitions by index and the first eligible transition
+      // to claim a step wins — so emission order IS the arbitration.
+      const nodes: GraphNode[] = [
+        step('s1'), step('sX'), step('sY'),
+        { ...transition('t1', hot), priority: 1 },
+        { ...transition('t2', hot), priority: 0 },
+      ]
+      const edges = [link('s1', 't1'), link('t1', 'sX'), link('s1', 't2'), link('t2', 'sY')]
+      const { transitions, error } = graphToTransitions(nodes, edges)
+      expect(error).toBeNull()
+      expect(transitions.map((t) => t.to_ids[0])).toEqual(['sY', 'sX'])
+    })
+
+    it('puts unranked transitions after ranked ones, keeping their relative order', () => {
+      const nodes: GraphNode[] = [
+        step('s1'), step('sX'), step('sY'), step('sZ'),
+        transition('tA', hot),
+        { ...transition('tRanked', hot), priority: 0 },
+        transition('tB', hot),
+      ]
+      const edges = [
+        link('s1', 'tA'), link('tA', 'sX'),
+        link('s1', 'tRanked'), link('tRanked', 'sY'),
+        link('s1', 'tB'), link('tB', 'sZ'),
+      ]
+      const { transitions } = graphToTransitions(nodes, edges)
+      expect(transitions.map((t) => t.to_ids[0])).toEqual(['sY', 'sX', 'sZ'])
+    })
+
+    it('survives a round trip — a reordered chart reloads in the same order', () => {
+      // The defect §8 names: priority used to be an invisible artefact of array position, so
+      // a load-edit-save could silently reshuffle which branch wins.
+      const recipe: MasterRecipe = {
+        header: { name: 'sel', version: 1, author: '', product: '' },
+        formula: {},
+        steps: ['s0', 'sX', 'sY'].map((id) => ({
+          id, pea_id: 1, service: 'Stirring', procedure_id: 2, params: {},
+        })),
+        transitions: [
+          { from_ids: ['s0'], to_ids: ['sX'], condition: hot },
+          { from_ids: ['s0'], to_ids: ['sY'], condition: hot },
+          { from_ids: ['sX'], to_ids: [END_ID], condition: always },
+          { from_ids: ['sY'], to_ids: [END_ID], condition: always },
+        ],
+      }
+      const { nodes, edges } = recipeToGraph(recipe)
+      const swapped = reprioritise(nodes, edges, 't2', 'up') // author promotes branch 2
+      const { transitions } = graphToTransitions(swapped, edges)
+      expect(transitions.slice(0, 2).map((t) => t.to_ids[0])).toEqual(['sY', 'sX'])
+
+      const reloaded = recipeToGraph({ ...recipe, transitions })
+      const again = graphToTransitions(reloaded.nodes, reloaded.edges).transitions
+      expect(again.map((t) => t.to_ids[0])).toEqual(transitions.map((t) => t.to_ids[0]))
     })
   })
 })

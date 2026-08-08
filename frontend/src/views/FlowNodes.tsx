@@ -1,6 +1,8 @@
+import { useContext } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { Condition } from '../api/types'
 import type { BarSpan } from '../ui/recipeGraph'
+import { BranchPriority } from './branchPriority'
 
 /**
  * The synchronization symbol — chart §6. `[CITED]` [IEC 60848:2013] Table 2 **[9]**: "When
@@ -58,14 +60,78 @@ export interface TransitionNodeData {
    *  decoration over link multiplicity, never structure. */
   barIn?: BarSpan
   barOut?: BarSpan
+  /** OR-branch priority (chart §8) — the sort key that becomes this transition's position in
+   *  `MasterRecipe.transitions`, which is what the engine arbitrates on. Not a wire field. */
+  priority?: number
+  /** Where this transition sits among the ones leaving a common step, when there are several.
+   *  Absent for a plain series — nothing to arbitrate. Computed by `recipeGraph.branchRanks`. */
+  rank?: { rank: number; of: number }
   [key: string]: unknown
 }
 
-export function TransitionNode({ data, selected }: NodeProps) {
+/**
+ * The OR-branch priority badge — chart §8.
+ *
+ * Shown only on a transition that is one of **several** leaving the same step (a selection,
+ * §6.2.3); a plain series has nothing to arbitrate. The engine walks
+ * `MasterRecipe.transitions` in order and the first eligible transition to claim a step wins,
+ * so this rank *is* the arbitration — it was previously an invisible artefact of array order.
+ *
+ * **▲▼ rather than drag.** §8 asked for a "draggable ①②③", but on a canvas node pointer-down
+ * already means *move the node* — React Flow owns it, and a drag-to-reorder would fight the
+ * gesture that positions the chart. `nodrag` keeps the buttons from starting a node drag.
+ */
+export function PriorityBadge({
+  rank,
+  of,
+  onMove,
+}: {
+  rank: number
+  of: number
+  onMove?: (direction: 'up' | 'down') => void
+}) {
+  const circled = '①②③④⑤⑥⑦⑧⑨'[rank - 1] ?? `${rank}`
+  return (
+    <span
+      className="nodrag absolute -top-3 left-0 flex items-center gap-0.5 rounded-full border border-warn/40 bg-panel px-1.5 py-0.5"
+      title={`Branch ${rank} of ${of} — lower numbers are tried first`}
+    >
+      <span className="text-[11px] leading-none text-warn">{circled}</span>
+      <button
+        type="button"
+        aria-label={`Raise branch ${rank} priority`}
+        disabled={rank === 1}
+        onClick={() => onMove?.('up')}
+        className="px-0.5 text-[9px] leading-none text-faint transition enabled:hover:text-ink disabled:opacity-30"
+      >
+        ▲
+      </button>
+      <button
+        type="button"
+        aria-label={`Lower branch ${rank} priority`}
+        disabled={rank === of}
+        onClick={() => onMove?.('down')}
+        className="px-0.5 text-[9px] leading-none text-faint transition enabled:hover:text-ink disabled:opacity-30"
+      >
+        ▼
+      </button>
+    </span>
+  )
+}
+
+export function TransitionNode({ id, data, selected }: NodeProps) {
   const d = data as TransitionNodeData
+  const move = useContext(BranchPriority)
   const set = Boolean(d.label)
   return (
     <div className="relative flex items-center gap-2">
+      {d.rank && (
+        <PriorityBadge
+          rank={d.rank.rank}
+          of={d.rank.of}
+          onMove={move ? (direction) => move(id, direction) : undefined}
+        />
+      )}
       {/* Table 2 [9] — two parallel lines spanning the steps this transition synchronises
           (§6.2.7) or activates in parallel (§6.2.6); both sides at once is §6.2.8. */}
       {d.barIn ? <BranchBar span={d.barIn} side="left" /> : null}
