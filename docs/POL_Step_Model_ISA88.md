@@ -22,6 +22,14 @@ Rationale and the build order live in [`progress/010`](progress/010_m5_step_mode
 - `../standards/ISA-88 (IEC-61512-1)/DIN EN IEC 61512-1_2023-11-00_ML_3491810.pdf` — extracted, read.
   **Item numbers below are printed *in the PDF itself*** — it is a Committee Draft carrying line
   numbers — so they survive re-extraction and grep directly: `grep -n "[^0-9]1341 *$"`.
+  *(Corrected 2026-08-05: this line used to say "the line-numbered items in that extraction", which
+  implied they were an artefact of our tooling. Two independent extractions — 2026-07-28 and
+  2026-08-05, different `pypdf` versions — place item 1341 at different **file** lines and both carry
+  the printed number.)*
+- `../standards/VDI-2658/VDI-VDE-NAMUR 2658 Blatt 4_2022-10-00_ML_3331566.pdf` — **extracted and read
+  2026-08-05.** §2 no longer rests on our own docstring, and §4a below is new because of it.
+- Remaining 2658-4 facts come from our parsed model, which carries the clause: `mtp/model.py:184`,
+  `state/codes.py:15`/`:36`.
 
 > ### ⚠ SOURCE STATUS — every ISA-88 citation here is the **2023 draft**, not the normative edition
 > *Added 2026-08-08. This document previously named its source but never flagged its status.*
@@ -60,15 +68,7 @@ Rationale and the build order live in [`progress/010`](progress/010_m5_step_mode
 > **Nothing built rests on this being normative.** The wire behaviour — what the POL writes, when — is
 > `[2658-4:2022]`, released and read directly. ISA-88 supplies the concepts (initiate + await
 > termination, the two gates, acting/waiting, the four exception levels); 2658-4 supplies the contract.
-> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md).
-  *(Corrected 2026-08-05: this line used to say "the line-numbered items in that extraction", which
-  implied they were an artefact of our tooling. Two independent extractions — 2026-07-28 and
-  2026-08-05, different `pypdf` versions — place item 1341 at different **file** lines and both carry
-  the printed number.)*
-- `../standards/VDI-2658/VDI-VDE-NAMUR 2658 Blatt 4_2022-10-00_ML_3331566.pdf` — **extracted and read
-  2026-08-05.** §2 no longer rests on our own docstring, and §4a below is new because of it.
-- Remaining 2658-4 facts come from our parsed model, which carries the clause: `mtp/model.py:184`,
-  `state/codes.py:15`/`:36`.
+> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md) B7.
 
 > ### Audit — 2026-08-05
 > Every `[CITED]` claim here was re-checked against the primary sources. Most verified verbatim.

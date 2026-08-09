@@ -53,7 +53,8 @@ only, never the repo.**
 >
 > That preview is why the **OR rail** shipped: "how a branch is drawn" *looked* like our design freedom
 > because the clause that names it was unreadable. It was not. Obtaining the full text deleted the
-> symbol and upgraded four others to `[CITED]` — the detail is in the ✅ box below and in `010` §13.
+> symbol and upgraded four others to `[CITED]` — the detail is in the ✅ box below and in `010` §12
+> (the build log; the unit-10 rebuild entry).
 
 > **ISA-88 citations here are mixed — check which edition before reusing one.** §0a quotes the
 > **normative** DIN EN 61512-1:2000-01 and says so. Everywhere else, an ISA-88 **item number**
@@ -74,12 +75,13 @@ only, never the repo.**
 > **It is lifted**: the tables are read, in both editions (see above). The document's pre-existing
 > §6.2.3/§6.3.4 references turned out to be Ed. 3.0 numbering and were correct all along.
 >
-> ⚠ **Four `[TITLE-ONLY]` tags survive** — §4.5.2 *Initial situation* (§2), §6.2.2 *Cycle of a single
-> sequence* (§2, §10), the §6.2.x structure rows (§5), and the step-skip/backward-skip clauses (§10).
+> ⚠ **Three `[TITLE-ONLY]` tags survive** — §4.5.2 *Initial situation* (§2), §6.2.2 *Cycle of a single
+> sequence* (§2, §10), and the step-skip / backward-skip clauses (§10). *(A fourth — the §6.2.x
+> structure rows in §5 — **was** read on 2026-08-08 and is now `[CITED]`.)*
 > **They are no longer *unavailable*, only *unread*:** the text is in the scratchpad extraction and any
 > of them can be upgraded by opening the clause. None is load-bearing for what is built — but per Rule 1
 > **do not upgrade a tag without reading the source**, so they stay `[TITLE-ONLY]` until someone does.
-> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md).
+> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md) D4.
 >
 > | glyph | status after the read |
 > |---|---|
@@ -342,6 +344,14 @@ Two things this needs:
 
 ## 5. AND and OR are drawn, not placed
 
+> **📖 Read §5 and §8 as *reasoning*, not as a description of current code.** Both were written before
+> `010` and describe the engine **as it then was** — so phrases like *"currently makes the author
+> hand-write `And[…]`"*, *"every branch currently carries the same default"*, *"must be restated"* and
+> *"**Today** only one branch fires by accident"* are all **historical**. Every one of them was fixed:
+> the two gates (unit 3), the `Always` rule over the whole `from_ids` (units 5/7b), and deliberate OR
+> arbitration (unit 8). They are kept because *why* the design is what it is only makes sense against
+> what it replaced. **For what the code does now, see `010` §12.**
+
 **`[CITED]`** §4.3.2 — **re-verified verbatim 2026-08-05**: *"Directed link (definition: 3.1.2, symbol
 10). A directed link connects **one or several steps to a transition, or a transition to one or
 several steps**."* Corroborated by §4.2: a transition is *"characterized by: • its **preceding steps**,
@@ -373,7 +383,7 @@ This used to say *"every §6.2.x row below — clause names, not text"*. The tex
 §6.2.7's NOTE is the important one: **"only enabled when all the preceding steps are active"** is the
 AND-join semantics our engine implements, now cited rather than derived.
 
-| clause (title only) | structure | hangs off | backend |
+| clause (`[CITED]`, quoted above) | structure | hangs off | backend |
 |---|---|---|---|
 | §6.2.6 *Activation of parallel sequences* | AND divergence | **one transition**, several steps | `Transition{from:[S1], to:[S2,S3]}` |
 | §6.2.7 *Synchronization of sequences* | AND convergence | several steps, **one transition** | `Transition{from:[S2,S3], to:[S4]}` |
@@ -384,17 +394,17 @@ AND-join semantics our engine implements, now cited rather than derived.
 divergence; several `from_ids` = a join."* **All four forms need no backend change.**
 
 ```
-   AND divergence              OR divergence  (a selection)
-      ┌────┐                      ┌────┐
-      │ S1 │                      │ S1 │
-      └──┬─┘                      └──┬─┘
-         │                     ┌─────┴─────┐    ← NO symbol here (§6.2.3)
-      ───┼───  Temp>80         │           │
-      ═════════  ← two         ──┼──     ──┼──  ← a transition per branch,
-       │      │     parallel     │  a       │     each with its own receptivity
-     ┌─┴┐   ┌─┴┐    lines      ┌─┴┐  ā·b  ┌─┴┐
-     │S2│   │S3│    (Table 2   │S2│       │S3│
-     └──┘   └──┘     [9])      └──┘       └──┘
+   AND divergence               OR divergence  (a selection)
+      ┌────┐                       ┌────┐
+      │ S1 │                       │ S1 │
+      └──┬─┘                       └──┬─┘
+         │                      ┌─────┴─────┐   ← NO symbol here (§6.2.3)
+      ───┼───  Temp>80          │           │
+      ═════════  ← two      a ──┼──  ā·b ──┼──  ← one transition per branch,
+       │      │    parallel     │           │     each with its OWN receptivity
+     ┌─┴┐   ┌─┴┐   lines      ┌─┴┐       ┌─┴┐
+     │S2│   │S3│   (Table 2   │S2│       │S3│
+     └──┘   └──┘    [9])      └──┘       └──┘
    ONE transition,            ONE step,
    2 succeeding steps         2 succeeding transitions
 ```
@@ -601,8 +611,13 @@ impossible.
   into the chart so it is visible and cannot be forgotten. *(Wording corrected 2026-08-08 — this line
   used to say GRAFCET calls such a chart "faulty", which the clause does not.)*
 - **No model change.** `MasterRecipe.transitions` is already an ordered list — **priority *is* that
-  order.** We surface what exists as a visible, draggable ①②③, instead of an invisible artefact of array
-  position that reshuffles on re-save.
+  order.** We surface what exists as a visible ①②③, instead of an invisible artefact of array position
+  that reshuffles on re-save.
+  > **As built (unit 11c): ▲▼ buttons on the badge, not drag.** This bullet said *"draggable"* until
+  > 2026-08-08. On a canvas node, pointer-down already means *move the node* — React Flow owns that
+  > gesture, so a drag-to-reorder would fight it. Buttons are equally visible and directly
+  > manipulable; `nodrag` keeps them from starting a node drag. **The requirement is that priority
+  > be visible and reorderable — not that it be dragged.**
 - **`[DERIVED]` the firing loop must become deliberate.** Today "only one branch fires" is an
   *accident*: `engine.py:106` iterates every transition and mutates `run.active` mid-loop, so the first
   firing removes the step and the second's guard incidentally fails. Replace with: **group a step's
@@ -698,8 +713,8 @@ Everything below blocks nothing.
 
 1. ~~**`BLOCKED ON STANDARD`** — the §5/§6 glyphs (§0).~~ **CLOSED 2026-08-08.** The governing edition
    is in the repo's standards folder in full (**DIN EN 60848:2014-12 = EN/IEC 60848:2013 Ed. 3.0**),
-   and **IEC 60848:2002 Ed. 2.0** alongside it. Tables 1–3 and all of Clause 6 are read in both; they
-   agree on every symbol we use. Outcome: the AND bar, the pit transition, the transition tick and the
+   and **IEC 60848:2002 Ed. 2.0** alongside it. Clause 5's Tables 1–11 and all of Clause 6 are read in
+   both; they agree on every symbol we use. Outcome: the AND bar, the pit transition, the transition tick and the
    link conventions are `[CITED]`; **the OR rail was invented and has been deleted**; the initial
    step's double border stays `[SEARCHED]` (its glyph is a figure we cannot render). One residue,
    not blocking: the **`=1` receptivity** rendering and the **pit-transition cap** styling remain

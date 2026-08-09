@@ -242,7 +242,7 @@ completed/aborted/failed).
 ```
 MasterRecipe { header: {name, version, author}, formula: {param: value}, steps[], transitions[] }
 RecipeStep   { id, pea_id, service, procedure_id, params: {name: value} }        # a phase binding
-Transition   { from_ids[], to_ids[], condition }                                  # SFC edge
+Transition   { from_ids[], to_ids[], condition }    # a NODE carrying the receptivity, never an edge
 Condition    = Always{}                                                            # `=1`, added at 010 unit 5
              | StateReached{pea_id, service, state}                               # e.g. COMPLETED
              | ValueThreshold{pea_id, value_name, op, threshold}                  # e.g. Temp > 60
@@ -254,19 +254,32 @@ Condition    = Always{}                                                         
 > continuous. There is still **no `Not`** — see [`OUTSTANDING.md`](OUTSTANDING.md) §C.*
 - **Parallel** = a transition with several `to_ids`. **Join** = a transition with several `from_ids`
   (waits for all). **Selection** = two transitions out of one step with mutually-exclusive conditions.
-- Example (linear then parallel), the JSON that drives both the chart and the engine:
+- Example (linear then parallel), the JSON that drives both the chart and the engine.
+  > **⚠ Rewritten 2026-08-08 — the original taught the anti-pattern `010` removed.** Both transitions
+  > used to carry `StateReached … "COMPLETED"`. Under the **two gates** (step model §3, [61512-1] item
+  > 1341) completion is **gate #1 — structural**, so restating it as a receptivity is noise, and on a
+  > *continuous* step it is circular. The corrected example shows both rules instead:
+  > - **the split carries `Always`** (`=1`) — `s1` runs `procedure_id 2`, HC30's **self-completing**
+  >   `Duration` procedure, so the step ending *is* the gate and there is nothing to add;
+  > - **the join carries a real receptivity** — `s2b` runs `procedure_id 1`, the **continuous**
+  >   procedure, which never ends by itself. Its receptivity **is** the completion criterion, so
+  >   `Always` there would be rejected (chart §4, enforced in `api/recipes.py`); `Elapsed` gives it a
+  >   real one, and firing sends `COMPLETE` to `s2b` before advancing.
+  >
+  > *(`s1`'s `procedure_id` also changed 1 → 2: it carried a `Duration` parameter while naming the
+  > continuous procedure, which was incoherent in the original.)*
 ```json
 {
   "header": { "name": "Batch-42", "version": 1, "author": "Marwen" },
   "formula": { "stir_minutes": 5, "speed_rpm": 200 },
   "steps": [
-    { "id": "s1",  "pea_id": 1, "service": "Stirring", "procedure_id": 1, "params": { "Duration": 300 } },
+    { "id": "s1",  "pea_id": 1, "service": "Stirring", "procedure_id": 2, "params": { "Duration": 300 } },
     { "id": "s2a", "pea_id": 2, "service": "Stirring", "procedure_id": 2, "params": {} },
     { "id": "s2b", "pea_id": 3, "service": "Stirring", "procedure_id": 1, "params": {} }
   ],
   "transitions": [
-    { "from_ids": ["s1"], "to_ids": ["s2a", "s2b"], "condition": { "type": "StateReached", "pea_id": 1, "service": "Stirring", "state": "COMPLETED" } },
-    { "from_ids": ["s2a", "s2b"], "to_ids": ["END"], "condition": { "type": "StateReached", "pea_id": 3, "service": "Stirring", "state": "COMPLETED" } }
+    { "from_ids": ["s1"], "to_ids": ["s2a", "s2b"], "condition": { "type": "Always" } },
+    { "from_ids": ["s2a", "s2b"], "to_ids": ["END"], "condition": { "type": "Elapsed", "seconds": 60 } }
   ]
 }
 ```

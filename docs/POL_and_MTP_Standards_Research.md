@@ -47,7 +47,7 @@ A modular process plant is built from **PEAs** (Process Equipment Assemblies = s
 
 | Term | Definition | Source |
 |---|---|---|
-| **MTP** — Module Type Package | "The central module description and data exchange format. The MTP describes the module interfaces and functions needed for the integration in the POL." Modelled on AutomationML (`IEC 62714`); *role classes are deliberately not used*. | `[2658-1:2019]` (§7, quoted) |
+| **MTP** — Module Type Package | "The central module description and data exchange format. The MTP describes the module interfaces and functions needed for the integration in the POL." Modelled on AutomationML (`IEC 62714`). ⚠ ~~*role classes are deliberately not used*~~ — **false, struck 2026-08-08**; see the note below. | `[2658-1:2019]` (§7, quoted) |
 | **PEA** — Process Equipment Assembly | A self-contained, encapsulated process module ("skid"), automated by its own PLC; dependencies between modules are minimized so modules protect themselves and their surroundings. Called a "module." | `[2658-1:2019]` |
 | **POL** — Process Orchestration Layer | The superordinate system that "reads and controls the individual PEAs"; spans automation + IT level for operating a modular plant. Integrates each module's objects into a single unambiguous namespace. | `[2658-1:2019][WG-2024]` |
 | **PFE / Process control** | The higher-level process-control function into which modules are integrated (the POL is its realization for modular plants). | `[2658-1:2019]` |
@@ -55,6 +55,20 @@ A modular process plant is built from **PEAs** (Process Equipment Assemblies = s
 | **Service Procedure** | A selectable operating mode/variant of a service (parameterization). | `[2658-4:2022]` |
 | **DataAssembly** | Standardized data object (sensor value, actuator, setpoint, interlock, etc.) — the reusable building block of a service interface. | `[2658-3][2658-4:2022]` |
 | **FEA** — Functional Equipment Assembly | Sub-module hierarchy level from VDI 2776; *no direct interaction with the batch system/POL.* | `[WG-2024]` |
+
+> **⚠ "role classes are deliberately not used" is FALSE — struck 2026-08-08.** It survived here as part of a
+> *quoted* definition long after **§4.1 disproved it on 2026-07-16**, which made this table contradict the
+> body of its own document — and the table is the part most likely to be quoted onward.
+>
+> **MTP does define and use RoleClasses:** `[2658-4:2022]` **Table 21** defines **`MissedValueFlag`** as
+> `Type: RoleClass` in **`MTPServiceRCLib`**, attached via `SupportedRoleClass` and carrying a
+> `MissedValue` BOOL — a RoleClass **with semantics**. Blatt 4 also defines `MTPTextRCLib`, and
+> `[2658-1:2022]` §8.1 says outright that optional description components **are** modelled as RoleClasses.
+>
+> **The actionable rule — unchanged, and a different statement:** identify types via
+> **`RefBaseSystemUnitPath`** / **`RefBaseClassPath`** / **`RefAttributeType`**, *never* via RoleClasses and
+> never via element name. "Do not key on RoleClasses" ≠ "MTP has none." Full account: §4.1;
+> `POL_MVP_and_Architecture.md` §5 struck the same claim on 2026-07-17.
 
 ---
 
@@ -122,7 +136,7 @@ The full minimal standards set for a v1 POL is now settled. **Paid standards are
 | Standard | Edition (file) | Folder | Priority to process |
 |---|---|---|---|
 | VDI/VDE/NAMUR 2658 **Blatt 1** | 2019-10 (**released** = manifest 1.0.0) | `../standards/VDI-2658/` | ✅ read (§7.3–§7.6, Table 4, Annex A) |
-| VDI/VDE/NAMUR 2658 **Blatt 1** | **2022-01 (draft) = manifest 1.1.0** | `../standards/VDI-2658/` | ⭐⭐ **Critical — our build target.** ✅ read (§2, §5, §8, §9, §13); §10–§12 + Annex pending |
+| VDI/VDE/NAMUR 2658 **Blatt 1** | **2022-01 (draft) = manifest 1.1.0** | `../standards/VDI-2658/` | ⭐⭐ **Critical — our build target.** ✅ read (§2, §5, §8, §9, **§12**, §13); **§10, §11 + Annex still unread** *(§12 was read at M1 step 8 — it settled the `Pea` identification fields; see `002` §11)* |
 | 2658 **Blatt 2** (HMI) | 2019-11 | `../standards/VDI-2658/` | **High** (HMI/faceplates) |
 | 2658 **Blatt 3** (data objects) | 2020-09 | `../standards/VDI-2658/` | ⭐ **Critical** (parser / DataAssemblies) |
 | 2658 **Blatt 4** (services) | 2022-10 | `../standards/VDI-2658/` | ⭐⭐ **Critical, process first** (state machine + command encoding) |
