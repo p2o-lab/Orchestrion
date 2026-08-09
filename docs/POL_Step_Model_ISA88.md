@@ -5,7 +5,15 @@ Written 2026-08-04. Supersedes §2.5 and §4's "drive a step" of
 [`POL_Recipe_Engine_Design.md`](POL_Recipe_Engine_Design.md) where they disagree.
 Rationale and the build order live in [`progress/010`](progress/010_m5_step_model_correction.md).
 
-**Nothing here is implemented yet.** The current `engine.py` contradicts this document.
+> **✅ IMPLEMENTED — [`progress/010`](progress/010_m5_step_model_correction.md) is complete
+> (2026-08-08), all 12 units.** `engine.py`, `control.py`, `state/classification.py`, `recipe/driver.py`
+> and `recipe/runs.py` now follow this document, and the defect it was written to kill — two
+> consecutive steps on one PEA running only the first and reporting success — is dead, proven over
+> HTTP. *(This line used to read "Nothing here is implemented yet. The current `engine.py`
+> contradicts this document." Corrected 2026-08-08.)*
+>
+> Known gaps against this document are tracked in [`OUTSTANDING.md`](OUTSTANDING.md) §B — chiefly
+> that **the engine still cannot detect a deadlocked run** (§15 of `010`).
 
 ---
 
@@ -14,6 +22,45 @@ Rationale and the build order live in [`progress/010`](progress/010_m5_step_mode
 - `../standards/ISA-88 (IEC-61512-1)/DIN EN IEC 61512-1_2023-11-00_ML_3491810.pdf` — extracted, read.
   **Item numbers below are printed *in the PDF itself*** — it is a Committee Draft carrying line
   numbers — so they survive re-extraction and grep directly: `grep -n "[^0-9]1341 *$"`.
+
+> ### ⚠ SOURCE STATUS — every ISA-88 citation here is the **2023 draft**, not the normative edition
+> *Added 2026-08-08. This document previously named its source but never flagged its status.*
+>
+> **Verified, not assumed.** All **21** item numbers cited in this document — 1341 · 1982 · 2233 ·
+> 2235 · 2316 · 2326 · 2331 · 2341 · 2355 · 2369 · 2382 · 2388 · 3444 · 3450 · 3451 · 3452 · 3455 ·
+> 3490 · 3517 · 3630 · 3640 — were grepped against **both** local extractions:
+>
+> | | DIN EN IEC 61512-1:**2023-11** (CD) | DIN EN 61512-1:**2000-01** (normative) |
+> |---|---|---|
+> | each of the 21 item numbers | **present, exactly once** | **0 — none of them exist** |
+> | `Table B.2` | present | **absent** |
+> | `RESETTING` | 19 | **0** |
+> | Annex D / Anhang D | present | **absent** |
+> | extent · language | 277 pp · EN | 60 pp · DE |
+>
+> **So: 100 % of this document's ISA-88 material is 2023-sourced. None of it is from the 2000 text** —
+> which is not a slip, because the procedural state model *is not in the 2000 edition at all*. It is
+> new in the draft, exactly as [`POL_and_MTP_Standards_Research.md`](POL_and_MTP_Standards_Research.md)
+> §3.3 records (*"new Annex D procedural-state reference model"*).
+>
+> **This is sanctioned, and the research doc says so.** §12 directs us to use the draft's *"clause 7 +
+> Annex D state models as a **companion** to `[WG-2024]` when designing the state machine"* — precisely
+> this document's use. What §12 forbids is treating it as *"the valid standard"*, and that is the line
+> to hold.
+>
+> **How to read the tags here, therefore:** a `[CITED]` on an ISA-88 item means **"quoted verbatim from
+> the 2023 Committee Draft"** — *not* "normative ISA-88". Two consequences:
+> 1. **Do not use an item number to defend a conformance claim.** Cite **`[2658-4:2022]`** instead — it
+>    is *released*, it is what the PEA actually implements, and on the points that matter here (the 16
+>    states, `Complete` for continuous procedures, `CommandEn`, the handshake) it says the same thing
+>    with real force.
+> 2. **Item numbers may move** if Ed. 2.0 changes before publication. The quoted *text* is what to
+>    re-verify against, never the number alone.
+>
+> **Nothing built rests on this being normative.** The wire behaviour — what the POL writes, when — is
+> `[2658-4:2022]`, released and read directly. ISA-88 supplies the concepts (initiate + await
+> termination, the two gates, acting/waiting, the four exception levels); 2658-4 supplies the contract.
+> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md).
   *(Corrected 2026-08-05: this line used to say "the line-numbered items in that extraction", which
   implied they were an artefact of our tooling. Two independent extractions — 2026-07-28 and
   2026-08-05, different `pypdf` versions — place item 1341 at different **file** lines and both carry
@@ -274,10 +321,11 @@ module interlocks** — conditions no state can predict. A service can therefore
 3. `state/codes.py:81-89` already provides `decode_command_en(value) -> frozenset[Command]`. The
    subscription already streams it (`connection.py:392`). **Nothing new is needed but the check.**
 
-**`[CITED]` today the POL does none of this.** `grep -n CommandEn orchestrion/opcua/control.py`
-returns **one hit — line 189, inside a docstring** that explicitly delegates the check to the PEA:
-*"the PEA still only acts if the command's `CommandEn` bit is set (§6.2.2.4)"*. That delegation is
-exactly how `START` into `COMPLETED` becomes a silent no-op.
+**`[CITED]` when this was written the POL did none of this.** `grep -n CommandEn
+orchestrion/opcua/control.py` returned **one hit — line 189, inside a docstring** that explicitly
+delegated the check to the PEA: *"the PEA still only acts if the command's `CommandEn` bit is set
+(§6.2.2.4)"*. That delegation is exactly how `START` into `COMPLETED` becomes a silent no-op.
+✅ **Built at `010` unit 2** — `read_command_en` / `require_command_enabled` now guard every command.
 
 **`[CITED]` corroboration from ISA-88** — the NOTE at items 3452-3455: *"it is generally recommended to
 **inhibit the STOP and ABORT commands while in the IDLE, COMPLETE, STOPPED, and RESETTING states**.
@@ -363,10 +411,11 @@ task can return to normal running:
 state; when the service returns to `EXECUTE` the run resumes on its own. No clock, nothing fails.
 Consistent with §6 — a waiting state needs a command, here the operator's.
 
-> Today this path does not exist. §7.4 EXAMPLE 5 — *"A batch may go into HOLD in response to a limit
-> switch indicating a valve failure"* — currently ends with `engine.py:100-103` declaring **`failed` /
-> "timed out"** after 60 s. **The operator does exactly what `HOLD` is for and we kill their batch for
-> the wrong reason.**
+> When this was written the path did not exist. §7.4 EXAMPLE 5 — *"A batch may go into HOLD in response
+> to a limit switch indicating a valve failure"* — ended with `engine.py:100-103` declaring **`failed` /
+> "timed out"** after 60 s. **The operator did exactly what `HOLD` is for and we killed their batch for
+> the wrong reason.** ✅ **Built at `010` unit 6**: held/paused are reported, the run waits, and the
+> global timeout is gone (§11).
 
 **`[OURS]` levels 3-4 → the run fails**: `status = "failed"`, `error` naming the step and final state;
 no further steps start. **`[CITED]`** item 3450 says the parent *"**may** progress"* — deliberately
@@ -383,7 +432,8 @@ ABORT, RESTART, COMPLETE`, 1:1 with §7.5. Nothing is blocked by the interface; 
 
 ## 8. A step has four states, not two
 
-**`[DERIVED]`** `RecipeRun` has `active`/`done` (`engine.py:54-55`). This model needs:
+**`[DERIVED]`** `RecipeRun` had only `active`/`done`. This model needs the four below — ✅ **built at
+`010` unit 3 as the `StepState` enum** (`RUNNING · COMPLETING · TERMINATED · DONE`):
 
 | | meaning | live chart |
 |---|---|---|
@@ -399,8 +449,9 @@ indefinitely — and *"S1 finished, waiting for Temp > 80"* is precisely what an
 
 ## 9. `Elapsed` counts from when the transition became *enabled*
 
-**`[OURS]`** — one rule from which both step kinds fall out correctly. `engine.py:110` currently
-measures from when the from-steps **started**, which under two gates is ambiguous.
+**`[OURS]`** — one rule from which both step kinds fall out correctly. `engine.py:110` measured from
+when the from-steps **started**, which under two gates is ambiguous. ✅ **Changed at `010` unit 3**;
+the engine now times from the transition-enabled instant.
 
 **Rule: `Elapsed` measures from the instant the transition became *enabled*** ("enabled" as defined by
 §3's table, not by an unread clause):
@@ -435,9 +486,11 @@ propagation can be in either direction … IEC 61512 **does not specify propagat
 
 ## 11. No global timeout; fail on disconnect
 
-**`[OURS]`** `engine.py:71` `timeout: float = 60.0` caps the **whole run**. Real batches run for hours;
-ISA-88 has no such concept; and it is what turns a held batch into a false `failed`. Default becomes
-`None` — a run ends when the chart ends it, or on abort. Tests pass a short timeout explicitly.
+**`[OURS]`** `engine.py:71` `timeout: float = 60.0` capped the **whole run**. Real batches run for
+hours; ISA-88 has no such concept; and it is what turns a held batch into a false `failed`. The default
+became `None` — a run ends when the chart ends it, or on abort. Tests pass a short timeout explicitly.
+✅ **Built at `010` unit 6**, together with the `try`/`except` around `drive_step` that the timeout had
+been accidentally masking.
 
 **`[DERIVED]`** but it was the only backstop against a **dead PEA**: `registry.snapshot(pea_id)` returns
 `None` when disconnected → `state_of` returns `None` → every condition false → **the run waits forever
@@ -501,8 +554,12 @@ allocation** gap at item 3 below, and it applies to both choices.)*
   condition true **and** all self-completing from-steps terminated → `COMPLETE` to each continuous one
   → await all final → initiate. **Satisfies item 1341 exactly** at the instant of initiation.
 
-Both are `[DERIVED]`, not `[CITED]` — IEC 60848 §6.2.3 is outside the preview and nothing else settles
-them. Chart §5 carries the full reasoning and what was rejected.
+Both are `[DERIVED]`, not `[CITED]`. *(Updated 2026-08-08: this used to say "IEC 60848 §6.2.3 is
+outside the preview". **The full standard is now held** — `../standards/IEC 60848_2013/` — and §6.2.3
+has been read. It does **not** settle these two: it says only that exclusive activation "is not
+guaranteed from the structure" and puts the duty on the designer. So the tag stands, but for the
+right reason — the clause was read and is silent, rather than unavailable.)* Chart §5 carries the
+full reasoning and what was rejected.
 
 ---
 
@@ -526,9 +583,14 @@ Not required to build this model, but each is a real gap in it.
    sibling-steps limitation: a failed batch can leave equipment running). Propagation is explicitly
    **not** specified by ISA-88 (items 2233-2235), so it is ours to design.
 
-## 13. What this contradicts in the current code
+## 13. What this contradicted in the code — ✅ ALL FIXED
 
-| file | today | must become |
+> **Historical, as of 2026-08-08.** Every row below was a real contradiction when this document was
+> written; **all of them were fixed by [`progress/010`](progress/010_m5_step_model_correction.md)**,
+> units 1–8. Kept as the record of what was wrong and why, **not as a to-do list** — do not read it
+> as outstanding work. What genuinely remains is [`OUTSTANDING.md`](OUTSTANDING.md).
+
+| file | was | became |
 |---|---|---|
 | `engine.py:113-115` | `done` = "a transition fired" | `done` = the phase **terminated** (§1, §5) |
 | `engine.py` | never sends `RESET` | mandatory both ends (§5) |
@@ -539,9 +601,9 @@ Not required to build this model, but each is a real gap in it.
 | `control.py:171-180` | `start_service` returns after writing Start | pre-flight (§4) + await-started (§1) |
 | — | no `HELD`/`PAUSED` concept | §7 levels 1-2 |
 
-**Added 2026-08-05 — each verified by reading the file, not inferred:**
+**Added 2026-08-05 — each verified by reading the file, not inferred. All four also fixed:**
 
-| file | today | must become |
+| file | was | became |
 |---|---|---|
 | `control.py` | **`CommandEn` is never read.** `grep -n CommandEn` → line 189 only, a docstring | guard every command (**§4a**) |
 | `engine.py:92-96` | activates **every** step that no transition targets — so a chart with two initial steps starts **both** on live equipment | exactly one initial step, enforced **server-side** as well as in the builder (chart §2) |

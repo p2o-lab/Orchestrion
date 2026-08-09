@@ -150,8 +150,8 @@ statement from "MTP has none".)*
 
 ## 6. Project structure
 
-Package name is **`orchestrion`** (locked). The tree below is the **current layout** (through the
-live-values increment; refreshed 2026-07-19, **corrected 2026-08-05**).
+Package name is **`orchestrion`** (locked). The tree below is the **current layout** (refreshed
+2026-07-19, corrected 2026-08-05, **extended for v0.2.0's recipe engine 2026-08-08**).
 
 > **⚠ The old note here said "`log.py` is the one planned-but-unbuilt file — it lands in M4."**
 > **M4 shipped without it.** The event log landed as `orchestrion/events.py` (model + in-memory
@@ -171,13 +171,21 @@ Orchestrion/                    (repo root)
 │  │  │  ├─ model.py            Access · IdentifierType · OpcUaNode · Endpoint · DataAssembly · ProcedureParameter · ValueObject · Service · Pea  ← see naming note
 │  │  │  └─ parser.py           read_mtp() -> Pea  (source list, instance list, service set T36, process value set T42)
 │  │  ├─ state/
-│  │  │  └─ codes.py            [2658-4 Table 14] StateCur + Command + CommandEn decode (the parser never interprets values)
+│  │  │  ├─ codes.py            [2658-4 Table 14] StateCur + Command + CommandEn decode (the parser never interprets values)
+│  │  │  └─ classification.py   the 16 states → acting / waiting / final [61512-1 items 2382-2390]. Exhaustive, NO default arm  (v0.2.0)
 │  │  ├─ opcua/                 the OPC UA client spine
 │  │  │  ├─ connection.py       PeaConnection: connect-by-URI, read/write (server-typed), subscribe state+CommandEn+values, read_value_metadata
 │  │  │  ├─ control.py          §6.2.1 handshake · set_parameter (§8.1.3) · write_process_value (§6.3.3)
+│  │  │  │                      + pre-flight (v0.2.0): read_command_en · require_command_enabled (§6.2.2.4) · await_state/await_started · ensure_idle
 │  │  │  └─ registry.py         persistent per-PEA connection · health-drop · WebSocket broadcast
-│  │  ├─ db/                    engine.py (SQLite) · models.py (Project, Pea)
-│  │  ├─ api/                   projects.py · peas.py · mtp_import.py · live.py (connect/disconnect + WS) · control.py · schemas.py
+│  │  ├─ recipe/                the orchestration engine  (v0.2.0 — see POL_Step_Model_ISA88.md + POL_Recipe_Chart_GRAFCET.md)
+│  │  │  ├─ model.py            MasterRecipe · RecipeStep · Transition · the Condition union (Always/StateReached/ValueThreshold/Elapsed/And/Or)
+│  │  │  ├─ conditions.py       receptivity evaluation against live PEA state and values
+│  │  │  ├─ engine.py           the run loop: the TWO GATES [61512-1 item 1341] · evaluate-then-fire · arm/fire for continuous steps · OR by list order
+│  │  │  ├─ driver.py           PlantStepDriver — the StepDriver seam onto real PEAs; READ_FAILURE_BUDGET
+│  │  │  └─ runs.py             RunManager · RunRecord — live runs, in memory only
+│  │  ├─ db/                    engine.py (SQLite) · models.py (Project, Pea, Recipe)
+│  │  ├─ api/                   projects.py · peas.py · mtp_import.py · live.py (connect/disconnect + WS) · control.py · recipes.py · schemas.py
 │  │  ├─ events.py              M4's event log — model + in-memory per-PEA ring buffer
 │  │  │                         (recorded + broadcast from opcua/registry.py; there is NO api/log.py)
 │  │  └─ (state machine)        the 16-state SM lives PEA-side in virtual_pea/state_machine.py; the POL only decodes StateCur via state/codes.py
@@ -185,7 +193,14 @@ Orchestrion/                    (repo root)
 │  │  ├─ server.py · state_machine.py · codes.py · run.py
 │  └─ tests/                    incl. regression tests (peer anti-patterns)
 │     └─ artifacts/             HC30 (1.1.0, primary fixture)
-└─ frontend/                    React/Tailwind (Vite, react-ts): workspace → project → PeaView (live state, control, value display + gauges)
+└─ frontend/                    React/Tailwind (Vite, react-ts) + React Flow for the recipe chart
+   └─ src/
+      ├─ ui/                    PURE, framework-free, heavily tested — recipeGraph.ts (canvas ⇄ engine mapping, synchronization bars,
+      │                         branch actions, OR priority) · conditions.ts (receptivity trees) · validateChart.ts · icons · primitives
+      ├─ views/                 workspace → project → PeaView (live state, control, value display + gauges)
+      │                         + the recipe builder: RecipeBuilder · StepNode · FlowNodes · ConditionEditor · NodePalette · StepEditor
+      ├─ hooks/                 useLiveState.ts (the per-PEA WebSocket)
+      └─ api/                   client.ts · types.ts (the wire model, mirrors the backend schemas)
 ```
 
 > **Naming note (`model.py`).** `ServiceProcedure` here is an **internal Python class name** and is a free
@@ -209,8 +224,11 @@ Orchestrion/                    (repo root)
 
 > **v0.1.0 shipped (M0–M4, tagged 2026-07-26).** v2 is now underway: **v0.2.0 = the recipe /
 > orchestration engine** — the first v2 item, designed in **`POL_Recipe_Engine_Design.md`** (grounded
-> in ISA-88 / IEC 61512), tracked in journal `009`. Faceplates (Blatt 2) and alarms (Blatt 6/7) remain
-> later v2 items. The real-PEA end-to-end demo (M4 Step 6) is still owed — see `progress/008` close-out.
+> in ISA-88 / IEC 61512). Journals: `009` (historical — how M5.0–M5.4 were first built) and **`010`**,
+> the correction that rebuilt the step model and the chart against IEC 60848 + ISA-88; `010` is
+> **complete (2026-08-08)**. **▶ Next: M5.5, the live execution view.** Faceplates (Blatt 2) and alarms
+> (Blatt 6/7) remain later v2 items. The real-PEA end-to-end demo (M4 Step 6) is still owed — see
+> `progress/008` close-out. **What is left overall: [`OUTSTANDING.md`](OUTSTANDING.md).**
 
 ---
 
@@ -239,6 +257,12 @@ Orchestrion/                    (repo root)
 ---
 
 ## 9. Next action
+
+> ### ⚠ This section is FROZEN at 2026-07-19 — do not read it for status
+> **M4 shipped, and so did v0.1.0 and most of v0.2.0.** The real next action is **M5.5 — the live
+> execution view**. Live status is **[`progress/000_INDEX.md`](progress/000_INDEX.md)**; what is left
+> is **[`OUTSTANDING.md`](OUTSTANDING.md)**. The text below is kept only as the original plan of
+> record. *(Marked 2026-08-08 — it still said "Next: M4".)*
 
 **Status (2026-07-19): M0 · M1 · M2 · M3 · the live-values increment are all complete** — the MVP spine is
 built except the event log. **Next: M4 — event log + polish** (see `docs/progress/008_m4_log.md`). The

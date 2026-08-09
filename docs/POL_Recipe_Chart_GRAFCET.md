@@ -6,43 +6,60 @@ Written 2026-08-04. Supersedes §2.5 of [`POL_Recipe_Engine_Design.md`](POL_Reci
 [`progress/009`](progress/009_m5_recipe_engine.md). Rationale and build order:
 [`progress/010`](progress/010_m5_step_model_correction.md).
 
-**Nothing here is implemented yet.** The current builder contradicts this document.
+> **✅ IMPLEMENTED — [`progress/010`](progress/010_m5_step_model_correction.md) is complete
+> (2026-08-08), units 9–12.** The builder now follows this document: two node kinds, the receptivity on
+> the transition, the initial step inferred, a branch ending on an unwired output, synchronization bars
+> drawn from link multiplicity, compound receptivities authorable, branch actions, visible OR priority
+> and chart validation. *(This line used to read "Nothing here is implemented yet. The current builder
+> contradicts this document." Corrected 2026-08-08.)* What is left: [`OUTSTANDING.md`](OUTSTANDING.md).
 
 Read [`POL_Step_Model_ISA88.md`](POL_Step_Model_ISA88.md) first — the chart's semantics depend on it.
 
 ---
 
-## 0. What we actually hold of IEC 60848, and the tags
+## 0. What we hold of IEC 60848, and the tags
 
-**IEC 60848:2013** was obtained 2026-08-04 as the **official public preview**. We had never held this
-document before; [`009`](progress/009_m5_recipe_engine.md) records it as "not in `../standards/`".
+### ✅ We hold the whole standard — both editions (2026-08-08)
 
-**Re-obtained and re-read 2026-08-05**, this time downloaded to the session scratchpad and extracted,
-so every quote below is now checkable rather than remembered:
-`https://cdn.standards.iteh.ai/samples/19077/a0175aea9c504229beb0d6b01861b5d0/IEC-60848-2013.pdf`
-— 15 PDF pages. **Treat it exactly like `../standards/`: scratchpad only, never the repo.**
+- **`../standards/IEC 60848_2013/` — DIN EN 60848:2014-12**, the German adoption of **EN/IEC 60848:2013
+  (Ed. 3.0)**. 57 pages, **complete**: Clause 5's symbol Tables 1–11, all of Clause 6, Clause 7 and the
+  annexes. **This is the governing edition** and the one this document cites by default.
+- **IEC 60848:2002 (Ed. 2.0)** — 110 pages, bilingual FR/EN, freely hosted. A useful cross-check: it
+  **agrees with Ed. 3.0 on every symbol we depend on**, checked clause by clause, and its English is
+  quoted here where it reads more clearly than the German.
 
-**What the preview contains: front matter + standard pages 8–13 = §1, §2, §3.1 (all 15 definitions),
-§3.2, §4.1, §4.2, §4.3.1–§4.3.3, and §4.4 up to the word "Consequences:", where it stops mid-clause.**
-Plus **Figure 1** and **Figure 2**, both legible.
+Both are extracted to the session scratchpad. **Treat them exactly like `../standards/`: scratchpad
+only, never the repo.**
 
-**Everything from §4.4's consequence list onward — §4.5.x evolution rules, §5's symbol Tables 1–4, all
-of §6, §7 and the annexes — exists only as a table-of-contents title.** Clause numbers and names,
-**not one word of their text**. §4.3.1 confirms where the symbols live: *"Symbols related to GRAFCET
-elements … are presented and exemplified in **Tables 1 to 4 in Clause 5**"* — standard page 19+,
-outside the preview.
-
-> **The TOC was checked against every `[TITLE-ONLY]` attribution in this document on 2026-08-05, and
-> all of them are correct:** §4.5.2 *Initial situation* · §4.5.3 *Clearing of a transition* ·
-> §6.2.3 *Selection of sequences* · §6.2.4 *Step skip* · §6.2.5 *Backward sequence skip* ·
-> §6.2.6 *Activation of parallel sequences* · §6.2.7 *Synchronization of sequences* ·
-> §6.2.8 *Synchronization and activation of parallel sequences* · §6.3.1 *Starting of a sequence by a
-> source step* · §6.3.2 *End of a sequence by a pit step* · §6.3.3 *Starting of a sequence with a
-> source transition* · §6.3.4 *End of a sequence by a pit transition*. The titles are right; the text
-> is still unread.
+> **⚠ The editions renumber Clause 6. Tables keep their numbers.**
 >
-> **One clause the TOC revealed that this document never mentioned: §6.2.2 *"Cycle of a single
-> sequence"*.** It matters — see §2 and §10.
+> | topic | Ed. 3.0 (2013) — **cite this** | Ed. 2.0 (2002) |
+> |---|---|---|
+> | Selection of sequences | **§6.2.3** | §6.1.3 |
+> | Activation of parallel sequences | **§6.2.6** | §6.1.6 |
+> | Synchronization of sequences | **§6.2.7** | §6.1.7 |
+> | End of a sequence by a pit transition | **§6.3.4** | §6.2.4 |
+> | *(what Ed. 2.0 calls §6.2.2)* | §6.3.2 | **"End of a sequence by a pit step"** — a different subject from Ed. 3.0's §6.2.2 |
+>
+> Ed. 3.0 inserted a §6.1 *"General"*, pushing Ed. 2.0's §6.1.x → §6.2.x and §6.2.x → §6.3.x. Tables
+> 1–11 are numbered and titled alike in both. **Never carry a clause number between editions
+> unchecked.**
+
+> ### 🗄 How we got here (historical)
+> Until 2026-08-08 this section read *"what we **actually hold** is the official public preview"* — 15
+> PDF pages, standard pages 8–13, with §5's symbol tables and all of §6 present **as table-of-contents
+> titles only, not one word of their text**. Every glyph in this document was therefore either drawn
+> from Figure 2 or admitted to be memory, and §6 was a wall of `[TITLE-ONLY]` tags.
+>
+> That preview is why the **OR rail** shipped: "how a branch is drawn" *looked* like our design freedom
+> because the clause that names it was unreadable. It was not. Obtaining the full text deleted the
+> symbol and upgraded four others to `[CITED]` — the detail is in the ✅ box below and in `010` §13.
+
+> **ISA-88 citations here are mixed — check which edition before reusing one.** §0a quotes the
+> **normative** DIN EN 61512-1:2000-01 and says so. Everywhere else, an ISA-88 **item number**
+> (1337-1339, 2391-2393, …) is from the **2023 Committee Draft**, which has *no normative force* — the
+> numbering does not exist in the 2000 text. See the SOURCE STATUS box in
+> [`POL_Step_Model_ISA88.md`](POL_Step_Model_ISA88.md) §0 for the full account and what to cite instead.
 
 | tag | meaning |
 |---|---|
@@ -52,31 +69,17 @@ outside the preview.
 | **`[DERIVED]`** | inference *from* cited clauses. |
 | **`[OURS]`** | a judgement call with no standard behind it. |
 
-> ### ✅ `RESOLVED 2026-08-08 — the symbol tables have been read, in both editions`
-> **The governing edition is now held in full.** `../standards/IEC 60848_2013/` carries
-> **DIN EN 60848:2014-12**, the German adoption of **EN 60848:2013 = IEC 60848:2013 (Ed. 3.0)** — 57
-> pages, the whole standard, Clause 5's Tables 1–11 included. **IEC 60848:2002 (Ed. 2.0)**, 110 pages
-> bilingual FR/EN, was also obtained. Both are extracted to the session scratchpad. Clause 5's symbol
-> tables and Clause 6's structures are read directly; this block is lifted.
+> ### ✅ `BLOCKED ON STANDARD — CLOSED 2026-08-08`
+> This document carried a `BLOCKED ON STANDARD` box for §5's symbol tables from the day it was written.
+> **It is lifted**: the tables are read, in both editions (see above). The document's pre-existing
+> §6.2.3/§6.3.4 references turned out to be Ed. 3.0 numbering and were correct all along.
 >
-> **Ed. 3.0 is authoritative here** — it is the edition ISA-88 and this document cite, and it *"cancels
-> and replaces the second edition"*. **Ed. 2.0 agrees with it on every symbol we depend on**, checked
-> clause by clause, which is why the quotations below are given in whichever language reads clearest.
->
-> **⚠ Clause numbers moved between editions; table numbers did not.** Ed. 3.0 inserted a §6.1
-> *"General"*, pushing Clause 6 down one:
->
-> | topic | Ed. 3.0 (2013) — **use this** | Ed. 2.0 (2002) |
-> |---|---|---|
-> | Selection of sequences | **§6.2.3** | §6.1.3 |
-> | Activation of parallel sequences | **§6.2.6** | §6.1.6 |
-> | Synchronization of sequences | **§6.2.7** | §6.1.7 |
-> | End of a sequence by a pit transition | **§6.3.4** | §6.2.4 |
-> | *(what Ed. 2.0 calls §6.2.2)* | §6.3.2 | **"End of a sequence by a pit step"** — an entirely different subject from Ed. 3.0's §6.2.2 |
->
-> Tables 1–11 keep their numbers, titles and order across both editions, so **Table 2 [9]** means the
-> same thing in each. This document's pre-existing §6.2.3/§6.3.4 references were Ed. 3.0 numbering and
-> were correct. Citations added 2026-08-08 use Ed. 3.0 numbers and say so.
+> ⚠ **Four `[TITLE-ONLY]` tags survive** — §4.5.2 *Initial situation* (§2), §6.2.2 *Cycle of a single
+> sequence* (§2, §10), the §6.2.x structure rows (§5), and the step-skip/backward-skip clauses (§10).
+> **They are no longer *unavailable*, only *unread*:** the text is in the scratchpad extraction and any
+> of them can be upgraded by opening the clause. None is load-bearing for what is built — but per Rule 1
+> **do not upgrade a tag without reading the source**, so they stay `[TITLE-ONLY]` until someone does.
+> Tracked in [`OUTSTANDING.md`](OUTSTANDING.md).
 >
 > | glyph | status after the read |
 > |---|---|
@@ -350,8 +353,25 @@ The "never a node" conclusion is **`[CITED]`**: it follows from §4.3.2 and §4.
 interpretation"*), both read in full. *(This line said "§3.1's closed element list" until 2026-08-05;
 §3.1 is a glossary — see §1.)*
 
-**`[TITLE-ONLY]`** every §6.2.x row below — clause *names*, not text. **The structure column is derived
-from §4.3.2**; the clause numbers are attribution by title.
+**Upgraded `[TITLE-ONLY]` → `[CITED]` on 2026-08-08** — the clauses have been read, in both editions.
+This used to say *"every §6.2.x row below — clause names, not text"*. The text confirms all four rows:
+
+> **§6.2.6** *Activation of parallel sequences* — *"In dieser Struktur wird das Synchronisierungssymbol
+> Nr. [9] angewendet, um die **gleichzeitige Aktivität mehrerer Ablaufketten durch einen oder mehrere
+> Schritte** anzuzeigen."*
+>
+> **§6.2.7** *Synchronization of sequences* — *"The synchronisation symbol 9 is used in this structure
+> to indicate the delay before preceding sequences end before the activation of the succeeding
+> sequence. NOTE — **The transition is only enabled when all the preceding steps are active**."*
+>
+> **§6.2.3** *Selection of sequences* — *"This structure is represented by **as many simultaneously
+> enabled transitions as possible evolutions**."* (no symbol — see §6)
+>
+> **§6.2.8** *Synchronization and activation of parallel sequences* — *"Das Synchronisierungssymbol
+> Nr. [9] wird in dieser Struktur **zweimal** angewendet."*
+
+§6.2.7's NOTE is the important one: **"only enabled when all the preceding steps are active"** is the
+AND-join semantics our engine implements, now cited rather than derived.
 
 | clause (title only) | structure | hangs off | backend |
 |---|---|---|---|
@@ -364,21 +384,25 @@ from §4.3.2**; the clause numbers are attribution by title.
 divergence; several `from_ids` = a join."* **All four forms need no backend change.**
 
 ```
-   AND divergence              OR divergence
+   AND divergence              OR divergence  (a selection)
       ┌────┐                      ┌────┐
       │ S1 │                      │ S1 │
       └──┬─┘                      └──┬─┘
-         │                           │
-      ───┼───  Temp>80           ────┴────      ← the OR rail (single)
-      ═════════  ← double bar     │       │
-       │      │                 ──┼──   ──┼──   ← a transition per branch
-     ┌─┴┐   ┌─┴┐                  │       │
-     │S2│   │S3│                ┌─┴┐    ┌─┴┐
-     └──┘   └──┘                │S2│    │S3│
-                                └──┘    └──┘
+         │                     ┌─────┴─────┐    ← NO symbol here (§6.2.3)
+      ───┼───  Temp>80         │           │
+      ═════════  ← two         ──┼──     ──┼──  ← a transition per branch,
+       │      │     parallel     │  a       │     each with its own receptivity
+     ┌─┴┐   ┌─┴┐    lines      ┌─┴┐  ā·b  ┌─┴┐
+     │S2│   │S3│    (Table 2   │S2│       │S3│
+     └──┘   └──┘     [9])      └──┘       └──┘
    ONE transition,            ONE step,
    2 succeeding steps         2 succeeding transitions
 ```
+
+> **⚠ Corrected 2026-08-08.** The right-hand figure used to draw *"← the OR rail (single)"* across the
+> selection. **There is no such symbol.** §6.2.3: a selection *"is represented by as many simultaneously
+> enabled transitions as possible evolutions"* — the fan-out **is** the notation. The `a` / `ā·b`
+> receptivities shown are §6.2.3 EXAMPLE 2's own way of expressing priority (§8).
 
 ### The step model is what makes these work at all
 
@@ -392,8 +416,14 @@ divergence; several `from_ids` = a join."* **All four forms need no backend chan
 
 ### Branches involving a *continuous* step — ✅ DECIDED 2026-08-06
 
-Both forms were undefined until now. Neither is settled by a clause — IEC 60848 §6.2.3 is outside the
-preview — so both are **`[DERIVED]`**, reasoned from the two gates and checked against ISA-88 item 1341.
+Both forms were undefined until now, and both remain **`[DERIVED]`** — reasoned from the two gates and
+checked against ISA-88 item 1341.
+
+> *Updated 2026-08-08: this used to say "IEC 60848 §6.2.3 is outside the preview". **The full standard
+> is now held and §6.2.3 has been read** — and it does not settle these two. It says only that
+> exclusive activation "is not guaranteed from the structure" and puts the duty on the designer
+> (§8). So the tag stands, but now because the clause was **read and is silent**, not because it was
+> unavailable.*
 
 **`[CITED]`** the standards basis for selection at all is **item 1339-1341**: *"Transition conditions
 may be inserted between any steps to **modify which steps will execute and in what order**, usually
@@ -430,7 +460,8 @@ Two reasons, both load-bearing:
 **`[DERIVED]` corroboration, not citation:** GRAFCET treats clearing as *event*-driven, not level-
 sampled — §3.1.9 defines transient evolution as *"the clearing of several successive transitions **on
 the occurrence of a single input event**"*, and §3.1.10's note as *"the possible evolution is realised
-by clearing the transition."* Consistent with latching. **§4.5.3 is unread**, so this does not upgrade.
+by clearing the transition."* Consistent with latching. **§4.5.3 is now readable** (the full standard
+is held) but has not been opened, so this stays `[DERIVED]` — see [`OUTSTANDING.md`](OUTSTANDING.md) D4.
 
 > **Rejected: forbidding a continuous step more than one exit.** It would outlaw
 > *"stir until temperature reached **or** time out → different paths"* — which is precisely where an
@@ -614,8 +645,11 @@ transition coordinates later would be purely additive.
 implemented." It was — see the box above.)*
 
 GRAFCET **§6.2.2** *Cycle of a single sequence*, **§6.2.4** *Step skip* and **§6.2.5** *Backward
-sequence skip* (all three `[TITLE-ONLY]`) contemplate them — and **Figure 2 is itself a cycle** (§2).
-**There is currently no rule, and that is a live hole, not a deferral:**
+sequence skip* (all three `[TITLE-ONLY]`, and now readable — D4) contemplate them — and **Figure 2 is
+itself a cycle** (§2).
+
+*The three bullets below described the hole **before** it was closed. It is closed: `api/recipes.py`
+rejects cycles (Kahn) and `ui/validateChart.ts` flags them while authoring. Kept for the reasoning:*
 
 - §2 only catches a loop that removes *every* initial step. A backward link like `S3 → S2` leaves S1
   initial, so **it passes validation today**.
@@ -639,11 +673,12 @@ sequence skip* (all three `[TITLE-ONLY]`) contemplate them — and **Figure 2 is
 > The GRAFCET clause titles (§6.2.2/§6.2.4/§6.2.5) and Figure 2 are now doing all the work here.
 > ISA-88 item 3112 is **corroboration at best** — do not lean on it.
 
-**Options:** reject cycles for now (matches what the engine is proven to do, and keeps topology-
-inference of the initial step valid **by construction** — but it must be journalled as *our*
-restriction, since GRAFCET plainly permits them); or read `engine.py`'s `run.active`/`run.done`
-handling and decide from evidence; or allow them, which means **both** shipping unverified engine
-behaviour **and** adding an explicit initial-step declaration to `MasterRecipe` (§2 option (a)).
+*(Options as they stood before the decision — **option 1 was taken**, and on stronger grounds than
+"our restriction": §2 shows ISA-88's procedure model never had a loop.)* **Options:** reject cycles
+(matches what the engine is proven to do, and keeps topology-inference of the initial step valid **by
+construction**); or read `engine.py`'s `run.active`/`run.done` handling and decide from evidence; or
+allow them, which means **both** shipping unverified engine behaviour **and** adding an explicit
+initial-step declaration to `MasterRecipe` (§2 option (a)).
 
 ---
 
@@ -682,7 +717,7 @@ Everything below blocks nothing.
    two-clause one cannot be typed. ✅ **FIXED at `010` unit 11a** (2026-08-08) — the editor now edits
    one `Condition` tree via `ui/conditions.ts`, so every member of the union round-trips. **One piece
    remains**: there is still no `Not`, so §6.2.3 EXAMPLE 2's `ā·b` is unwritable — see
-   [`../OUTSTANDING.md`](../OUTSTANDING.md) §C.
+   [`OUTSTANDING.md`](OUTSTANDING.md) §C.
 5. **Formula ↔ step params** — `MasterRecipe.formula` (ISA-88 §6.3.3) is dead data; `RecipeStep.params`
    are literal numbers, so a recipe cannot be scaled per batch as ISA-88 intends.
 6. **Step parameters** — how the builder writes `params` and validates them against the procedure's

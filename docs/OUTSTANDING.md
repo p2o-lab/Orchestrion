@@ -49,6 +49,10 @@ Four separable pieces, in rough size order:
 - **c. A run WebSocket, replacing the poll** — medium, and genuinely optional. `live.py` +
   `hooks/useLiveState.ts` are a close precedent for PEA state; **there is no run WS today.**
 - **d. Pause/resume** — **does not exist at any layer.** See A2; it belongs with M5.6, not here.
+- **e. A helper to launch N VirtualPEA instances as a demo plant** — *named in `009`'s M5.5 brief and in
+  the design doc §7, never built.* `virtual_pea/run.py` starts **one** server (`--endpoint`); there is
+  no way to bring up a 3-PEA plant in one command. Without it there is nothing multi-PEA to *watch*,
+  which is the point of the view. Small, and it is test/demo tooling rather than product.
 
 > **The one Rule 1 edge in an otherwise free-design milestone.** How a running step is *drawn* is
 > ours — Ed. 3.0's Table 2 [7] NOTE 4 even puts transition symbolism outside IEC 60848. But the
@@ -99,7 +103,8 @@ approved source — implement from the schema, nothing to interpret. Primer alre
 
 ## B. Owed corrections — real gaps, recorded not fixed
 
-These are all from `010`. None blocks M5.5.
+**B1–B6 and B9 come from `010`; B7 and B8 surfaced on the 2026-08-08 end-to-end doc read** — B7 from a
+conflict between two authority docs, B8 from `003`'s parked list. **None blocks M5.5.**
 
 ### B1 · 🚩 The runtime liveness check — no deadlock detection
 
@@ -125,7 +130,7 @@ lets it through. Now reachable from the UI, since `010` unit 11a made compounds 
 
 The builder is deliberately stricter (`containsAlways` walks the tree) so such a chart is *flagged* —
 but it still saves, because the builder never blocks. **The server is the safety boundary, so that is
-where this must be fixed.** Small change to one function. `010` §13, unit 12.
+where this must be fixed.** Small change to one function. `010` §12, unit 12.
 
 ### B3 · `_fire` has no `is_connected` check
 
@@ -148,7 +153,40 @@ to A3, and probably solved by the same work.
 `api/recipes.py` rejects cycles properly; the engine's own guard catches only *pure* cycles. Fine
 while every recipe arrives through the API, a latent trap if anything ever constructs a run directly.
 
-### B7 · `update_recipe` does not bump `version`
+### B7 · ISA-88 citations are all draft-sourced — disclosed, not yet cross-checked
+
+**Found 2026-08-08 while reading the docs end to end.** Every ISA-88 item number in
+`POL_Step_Model_ISA88.md` — all 21 of them — comes from the **2023 Committee Draft**. Verified by
+grepping both local extractions: each appears exactly once in the 2023 text and **zero times** in
+**DIN EN 61512-1:2000-01**, the edition `POL_and_MTP_Standards_Research.md` §12 calls normative.
+
+Not a mix-up: the procedural state model (Annex D, Table B.2, `RESETTING`, acting/waiting) **does not
+exist in the 2000 edition** — it is new in the draft. And §12 explicitly sanctions using the draft
+*"as a companion … when designing the state machine"*, which is what was done.
+
+**The gap was disclosure**, now fixed: the step-model doc's §0 carries a SOURCE STATUS box saying a
+`[CITED]` item means *"quoted from the 2023 CD"*, not *"normative ISA-88"*.
+
+**What is still owed, and it is small:** for the handful of load-bearing concepts — the two gates
+(1341), initiate + await termination (1982), acting/waiting (2382-2390) — confirm whether the
+**normative 2000 text** says the same thing in its own words, or whether **`[2658-4:2022]`** (released,
+and the actual contract) covers it. Then cite *that* instead. Nothing depends on this today: the wire
+behaviour is 2658-4, which is released and was read directly.
+
+### B8 · `read_mtp` never checks that `ServiceControl` is complete — a `KeyError` at subscribe
+
+*From `003` §6.3's parked list; not tracked anywhere else until 2026-08-08.*
+
+The parser does **not** verify that Table 13's mandatory `ServiceControl` attributes are present. An
+`.aml` missing `StateCur` parses cleanly and then **`KeyError`s at subscribe time**, far from the
+cause. Parked deliberately at the time (user, 2026-07-17) on the grounds that it is *"a crash, not a
+silent wrong answer"* — which is the right call on severity, and still leaves a bad diagnosis.
+
+Closing it needs Table 13 read for **mandatory vs optional**, which has not been done. *(The same
+parked list also notes Blatt 5.1 Table 32's `MaxSessions` cap is unimplemented in the VirtualPEA —
+minor, and only affects the test server.)*
+
+### B9 · `update_recipe` does not bump `version`
 
 `api/recipes.py:297` does `row.version = body.header.version` — it takes whatever the client sent.
 `db/models.py:69` documents that *"`version` bumps when a recipe is edited"*. **One of the two is
@@ -165,7 +203,7 @@ Listed so nobody "discovers" them and re-opens a settled question.
   conditions, `Temp>80` vs `Temp>50` on one value, two `StateReached` on one service. Deferred
   because such a chart **still runs deterministically** under our priority arbitration; it just has
   a silently dead branch. An authoring smell, not a safety problem. Purely additive whenever added.
-- **`Not` in the condition union** (`010` §13, unit 11a). Its absence means `[IEC 60848:2013]`
+- **`Not` in the condition union** (`010` §12, unit 11a). Its absence means `[IEC 60848:2013]`
   §6.2.3 EXAMPLE 2 — priority expressed as `a` versus `ā·b`, *the standard's own worked example* —
   **cannot be written in our editor.** Adding it is a wire-format change: `api/types.ts`, the
   Pydantic union, and `recipe/conditions.py`'s evaluator. Deferred, not forgotten.
@@ -174,6 +212,55 @@ Listed so nobody "discovers" them and re-opens a settled question.
   Chart §0a: GRAFCET is a borrowed notation, ISA-88 is the conformance target. Not a bug.
 - **A branch may only end on a *pit transition***, never a *pit step*, though `[IEC 60848:2013]`
   §6.3.2 allows the latter. One terminal shape keeps `graphToTransitions` total. Chart §3.
+
+---
+
+## C2. Deferred from v0.1.0 — still open, and most need a real PEA
+
+*Added 2026-08-08 on the second doc sweep. **The first version of this file missed these entirely** —
+they were recorded in `progress/007` and `008`'s close-out and in the index's 007 row, but not carried
+forward here. They are not recipe work, which is why they slipped.*
+
+- **Config-parameter writing** — controlled value assignment (`[2658-4:2022]` §8.1.3) at **service**
+  scope, for all four types. `control.set_parameter` exists for *procedure* parameters and would be
+  generalised. **Needs a real PEA to test** — HC30 exposes none.
+- **Report values + the freeze rule** (§6.2.5) — live during `EXECUTE`, **frozen** at
+  Completed/Aborted/Stopped. Parsed and modelled; the freeze behaviour has never been exercised,
+  because no PEA we can reach declares report values.
+- **Bin / String procedure parameters** — only the **analog** kind is modelled, since HC30 has only
+  analog. The parser and UI would both need the other three.
+- **🔒 VQC / WQC quality codes — genuinely `BLOCKED ON STANDARD`.** The byte enumeration **is not in any
+  published part**: Blatt 3 Table 7 defers it and only `0xFF` (*"no QC available"*) is defined. Writing
+  `ProcessValueIn` writes `V` only, which is **correct** until the enumeration exists. This is the one
+  item on this page that cannot be closed by us — it needs the standard to say something.
+- **A fuller test PEA** — HC30 only exercises PEA-wide process values, so the three items above have no
+  test target at all. Same root cause as [D1](#d1--the-real-pea-end-to-end-demo-owed-since-v010), and
+  **do not fabricate them in the VirtualPEA** — it mirrors HC30 exactly, on purpose.
+
+### Parked at M1, still parked — from `002` §11's close-out
+
+*Also missed by the first version of this file.* Each was parked **with its clause**, so none needs
+re-deriving — `002` §11 lists them and `parser.py` carries the citations at the sites concerned.
+
+- **CAEX 2.15 / manifest 1.0.0 tolerance** — `caex.py:447` refuses these outright:
+  *"CAEX 2.15 / manifest 1.0.0 files are not supported yet."* Deliberate (plan §8: one version behind a
+  seam, never both in one unit), and the **MTPPy artifact is kept precisely as the regression fixture**
+  for when it is built. **The largest item in this list.**
+- **`ObjectItem` / `MethodItem`** (`[2658-1:2022]` T37 #17/#18) — `parser.py:257` records that §9.1
+  leaves them **abstract**, to be *"introduced in further standard parts"*. Only `DataItem`/`OPCUAItem`
+  is bound. Blocked as much by the standard as by us.
+- **`Classification` / IRDI** (Table 36 #4d) — noted at `parser.py:595`, not parsed.
+- **§12 runtime type/version verification** — the **MTP half is on `Pea`** (`manufacturer_uri`,
+  `product_code`, `device_revision`, cited at `model.py:244`); the **runtime half is never compared**.
+  ⚠ And `002` §9.3c already proved **§12.3 cannot pass against HC30**, whose `DeviceRevision` is
+  literally `"No Information"` — so this needs a real PEA too.
+- **HMI aspect / auto-generated faceplates** (Blatt 2) — a v2 item in `POL_MVP_and_Architecture.md` §2,
+  which also records *why* it cannot precede M2: symbols reach live data via `RefID` → DataAssembly.
+- **Plant topology (ports / connections)** — deferred at M2 with a seam already in place: `004` §4 notes
+  the schema hangs everything off `project_id`/`pea_id`, so a `Connection`/`Port` table attaches without
+  disturbing projects or PEAs. Named again in `005` §6 and `006`'s NEXT. Recipes were the other half of
+  that deferral and are now built; **topology is the half still outstanding.**
+- **Alarm management** (Blatt 6/7, both drafts) — a v2 item, untouched.
 
 ---
 
@@ -210,7 +297,19 @@ Both known, neither a bug in the POL, both shaping what our tests can actually p
   `POL_Step_Model_ISA88.md` §9's worked example ("a 60 s self-completing step") **has no test
   target.**
 
-### D4 · Frontend lint has 10 pre-existing problems
+### D4 · Three `[TITLE-ONLY]` tags in the chart doc are now readable but unread
+
+`POL_Recipe_Chart_GRAFCET.md` still tags three claims `[TITLE-ONLY]` — §4.5.2 *Initial situation*,
+§6.2.2 *Cycle of a single sequence*, and the step-skip / backward-skip clauses (§10). They were
+written when only a 15-page preview existed. **The full text is now in `../standards/`**, so they are
+no longer *unavailable* — merely *unread*. *(The §6.2.x structure table in chart §5 was the fourth;
+it was read and upgraded to `[CITED]` on 2026-08-08.)*
+
+None is load-bearing for anything built. But Rule 1 says **do not upgrade a tag without reading the
+source**, so they stay as they are until someone opens those clauses. Cheap to close; worth doing
+next time the chart doc is open anyway.
+
+### D5 · Frontend lint has 10 pre-existing problems
 
 9 errors + 1 warning, in `workspace.tsx`, `PeaView.tsx` and others — `react-hooks/set-state-in-effect`
 and `react-refresh/only-export-components`. **Predate all of `010`** (verified by linting a stashed
@@ -221,7 +320,15 @@ number stops being noise that hides a real regression.
 
 ## E. Documentation state
 
-Swept **2026-08-08**; believed current. What a reader should know:
+**Swept 2026-08-08 — three passes, then a read-only verification.** The first pass was grep-based and
+**missed the worst items**: both authority docs opened with *"Nothing here is implemented yet"*, and
+the index still told every new session that IEC 60848 was not in `../standards/`. The second read the
+live docs; the third read the journals too, and only then did the invented **OR rail** turn up in an
+ASCII diagram that three earlier passes had scrolled past. If you need to know whether a doc is
+current, **read it** — pattern-matching does not find a sentence nobody thought to search for, and it
+never finds a picture.
+
+What a reader should know:
 
 - **[`progress/000_INDEX.md`](progress/000_INDEX.md)** — the status file and session entry point.
   Current.
@@ -230,12 +337,18 @@ Swept **2026-08-08**; believed current. What a reader should know:
 - **[`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md)** — the chart authority. §0 carries
   the **edition-mapping table**: Ed. 2.0 §6.1.x ↔ Ed. 3.0 §6.2.x, Ed. 2.0 §6.2.x ↔ Ed. 3.0 §6.3.x,
   Tables 1–11 alike in both. **Never carry a 60848 clause number between editions unchecked.**
-- **[`POL_Step_Model_ISA88.md`](POL_Step_Model_ISA88.md)** — what a step is and how it executes.
+- **[`POL_Step_Model_ISA88.md`](POL_Step_Model_ISA88.md)** — what a step is and how it executes. **Read
+  its §0 SOURCE STATUS box before citing anything from it**: all 21 ISA-88 item numbers are from the
+  2023 Committee Draft, not the normative edition (B7). Its §13 is a *historical* table of what the
+  code used to contradict — not a to-do list.
 - **[`POL_Recipe_Engine_Design.md`](POL_Recipe_Engine_Design.md)** — **partially superseded**, and it
   says so at the top: §2.5's chart model is wrong. Still the authority for *why*, the ISA-88/BatchML
-  primer, the architecture seams and the data model.
-- **[`POL_MVP_and_Architecture.md`](POL_MVP_and_Architecture.md)** — the v0.1.0 plan of record. Its
-  §9 "Next action" is dated 2026-07-19 and still says "Next: M4"; the section states outright that it
-  is *"only the original plan of record"* and points at `000_INDEX.md`. **Left as a historical
-  document on purpose** — its file tree also predates `recipe/`. Do not read it for status.
-- **[`POL_and_MTP_Standards_Research.md`](POL_and_MTP_Standards_Research.md)** — the spec.
+  primer, the architecture seams and the data model. Its §6 roadmap is superseded from M5.4 on.
+- **[`POL_MVP_and_Architecture.md`](POL_MVP_and_Architecture.md)** — the v0.1.0 plan of record. §6's
+  file tree **was extended for `recipe/` on 2026-08-08** and is current. **§9 "Next action" is frozen
+  at 2026-07-19 and still says "Next: M4"** — it now carries a banner saying so. Do not read §9, §2 or
+  §7 for status; they are the original plan.
+- **[`POL_and_MTP_Standards_Research.md`](POL_and_MTP_Standards_Research.md)** — the spec. Read end to
+  end 2026-08-08, **no staleness found** — it is the best-maintained document in the repo, with dated
+  inline corrections throughout. Note §3.3/§12: it names **DIN EN 61512-1:2000-01** as the normative
+  ISA-88 and the 2023 document as a draft with *"no normative force"* — the constraint behind B7.

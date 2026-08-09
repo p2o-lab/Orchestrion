@@ -2,12 +2,15 @@
 
 > **What this document is.** The design foundation for **v0.2.0 — the recipe/orchestration engine**,
 > a sibling to `POL_and_MTP_Standards_Research.md` (the spec) and `POL_MVP_and_Architecture.md` (the
-> plan). Read it before building anything in `orchestrion/recipe/` or `frontend/src/recipe/`. It
+> plan). Read it before building anything in `orchestrion/recipe/` or the frontend recipe views. It
 > explains **what ISA-88 / BatchML actually are**, how they map onto MTP, the engine architecture on
 > top of our existing control/registry seams, the data model, and the incremental roadmap.
 >
-> **Status:** design locked with Marwen 2026-07-26. **M5.0–M5.3 built; M5.4 builder built.** Journal:
-> `docs/progress/009_m5_recipe_engine.md`, then **`010`**.
+> **Status:** design locked with Marwen 2026-07-26. **M5.0–M5.4 built, then corrected in full by
+> [`progress/010`](progress/010_m5_step_model_correction.md), which is complete (2026-08-08).
+> ▶ Next is M5.5, the live execution view.** Journals: `progress/009` (historical — how it was
+> first built), then **`010`** (what is in the code now). What is left:
+> [`OUTSTANDING.md`](OUTSTANDING.md).
 
 > ## ⚠ PARTIALLY SUPERSEDED — 2026-08-04
 >
@@ -203,6 +206,9 @@ It invents no new OPC UA or control code:
 - `conditions.py` — pure `evaluate(condition, snapshots, elapsed) -> bool` (no I/O → unit-testable).
 - `engine.py` — `RecipeEngine`: one async task per run; walks the step/transition graph; tracks run
   status; exposes run/pause/abort; streams run state to WS; records `EventKind.RECIPE` events.
+  > *As built: run + abort + observable status, and `EventKind.RECIPE`. **No pause, no WS streaming.**
+  > `010` also added `driver.py` (the `StepDriver` seam) and `runs.py` (`RunManager`), which this
+  > design did not anticipate.*
 
 **Persistence** (`db/models.py`): new **`Recipe`** table scoped to a `Project` — `id, project_id,
 name, version, definition (JSON), created_at`. JSON blob + metadata columns, mirroring how `Pea`
@@ -211,10 +217,20 @@ stores its `.aml` (single source of truth, re-parsed on demand).
 **API** `api/recipes.py`: recipe CRUD under a project + run control
 (`POST …/recipes/{id}/run`, `…/runs/{run_id}/pause|abort`, `GET …/runs/{run_id}`) + a run WS.
 
-**Frontend** `frontend/src/recipe/`: a **drag-and-drop chart builder** (nodes = steps → pick project
-PEA/service/procedure/params; edges = transitions → pick a condition; header + formula panels) and a
-**live execution view** (same chart, active step(s) highlighted from the run WS, recipe controls, the
-recipe event log). React/TS/Tailwind, consistent with the existing app.
+> *As built (2026-08-08): CRUD, `run`, `abort`, `GET …/runs/{run_id}` and `GET …/runs` exist.
+> **`pause` and the run WS do not** — see [`OUTSTANDING.md`](OUTSTANDING.md) A1. Pause is a Table 14
+> command with defined semantics, so it is Rule 1 work and belongs with M5.6.*
+
+**Frontend** — *as built, this landed in `frontend/src/views/` (`RecipeBuilder`, `StepNode`,
+`FlowNodes`, `ConditionEditor`, `NodePalette`) over pure logic in `frontend/src/ui/`
+(`recipeGraph.ts`, `conditions.ts`, `validateChart.ts`); there is no `src/recipe/` directory.*
+A **drag-and-drop chart builder** (~~nodes = steps → pick project PEA/service/procedure/params; edges =
+transitions → pick a condition~~ — **that is §2.5's superseded model**: a transition is a **node**
+carrying the receptivity and edges carry nothing, see
+[`POL_Recipe_Chart_GRAFCET.md`](POL_Recipe_Chart_GRAFCET.md); header + formula panels) and a
+**live execution view** (same chart, active step(s) highlighted, recipe controls, the recipe event
+log — **M5.5, not yet built**, and it will poll `GET …/runs/{id}` because there is no run WS).
+React/TS/Tailwind, consistent with the existing app.
 
 **Events** (`events.py`): add `EventKind.RECIPE` (started, step started/completed, transition fired,
 completed/aborted/failed).
@@ -227,11 +243,15 @@ completed/aborted/failed).
 MasterRecipe { header: {name, version, author}, formula: {param: value}, steps[], transitions[] }
 RecipeStep   { id, pea_id, service, procedure_id, params: {name: value} }        # a phase binding
 Transition   { from_ids[], to_ids[], condition }                                  # SFC edge
-Condition    = StateReached{pea_id, service, state}                               # e.g. COMPLETED
+Condition    = Always{}                                                            # `=1`, added at 010 unit 5
+             | StateReached{pea_id, service, state}                               # e.g. COMPLETED
              | ValueThreshold{pea_id, value_name, op, threshold}                  # e.g. Temp > 60
              | Elapsed{seconds}                                                    # e.g. after 300 s
-             | And[Condition...] | Or[Condition...]
+             | And[Condition...] | Or[Condition...]                                # min_length=1 on both
 ```
+> *`Always` is the GRAFCET `=1` receptivity and the default for a self-completing step, where
+> completion is the other gate (chart §4). It is **invalid** on a transition whose from-step is
+> continuous. There is still **no `Not`** — see [`OUTSTANDING.md`](OUTSTANDING.md) §C.*
 - **Parallel** = a transition with several `to_ids`. **Join** = a transition with several `from_ids`
   (waits for all). **Selection** = two transitions out of one step with mutually-exclusive conditions.
 - Example (linear then parallel), the JSON that drives both the chart and the engine:
