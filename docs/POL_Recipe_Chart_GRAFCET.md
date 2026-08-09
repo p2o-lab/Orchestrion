@@ -679,7 +679,10 @@ Everything below blocks nothing.
    existing compound condition and saving it **destroys it**. The engine, the wire types
    (`api/types.ts:98-99`) and `summarize()` all support compounds; only the editor does not. This bites
    §5 and §8 directly: OR branches are supposed to carry *real* distinguishing receptivities, and a
-   two-clause one cannot be typed. **Belongs with unit 11.**
+   two-clause one cannot be typed. ✅ **FIXED at `010` unit 11a** (2026-08-08) — the editor now edits
+   one `Condition` tree via `ui/conditions.ts`, so every member of the union round-trips. **One piece
+   remains**: there is still no `Not`, so §6.2.3 EXAMPLE 2's `ā·b` is unwritable — see
+   [`../OUTSTANDING.md`](../OUTSTANDING.md) §C.
 5. **Formula ↔ step params** — `MasterRecipe.formula` (ISA-88 §6.3.3) is dead data; `RecipeStep.params`
    are literal numbers, so a recipe cannot be scaled per batch as ISA-88 intends.
 6. **Step parameters** — how the builder writes `params` and validates them against the procedure's
