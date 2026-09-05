@@ -138,7 +138,18 @@ def _check_exactly_one_initial_step(recipe: MasterRecipe) -> None:
     The engine guards this too (unit 5), but a recipe can be `POST`ed straight past the
     builder, so the API is where a malformed one has to be stopped — the builder is an
     authoring aid, not a safety boundary (`POL_Recipe_Chart_GRAFCET.md` §2).
+
+    ⚠ An **empty** recipe is exempt (2026-09-05). `ProjectView.createRecipe` posts
+    `steps: []` / `transitions: []` and then opens the canvas on the stored row, so
+    gating creation on this check made a new recipe impossible: zero steps yields zero
+    initial steps, which is not one, so the endpoint answered 422 before the author could
+    draw anything. The message compounded it, reporting "every step is a transition
+    target (a cycle?)" when there were no steps and no cycle. A recipe with no shape yet
+    has no shape to check, and nothing unrunnable can start regardless: the run path
+    guards the initial step independently (`010` unit 5).
     """
+    if not recipe.steps:
+        return
     targets = {d for t in recipe.transitions for d in t.to_ids}
     initial = sorted(s.id for s in recipe.steps if s.id not in targets)
     if len(initial) == 1:
@@ -201,6 +212,25 @@ def _check_no_cycles(recipe: MasterRecipe) -> None:
         )
 
 
+def _contains_always(condition: Condition) -> bool:
+    """Does `Always` appear anywhere in this condition tree?
+
+    ⚠ Added 2026-09-05, replacing an `isinstance(condition, Always)` test that read only the
+    OUTERMOST node. That test passed a nested `Always` straight through, and
+    `Or[Always, ...]` is exactly as fatal as a bare `Always`: an `Or` is true the moment any
+    child is, so a continuous service would be started and completed in the same instant.
+    Only a bare `Always` was ever refused, and the frontend's `containsAlways` had walked the
+    tree since `010` unit 12 — the two sides disagreed, and the server was the lax one, which
+    is the side that matters because a recipe can be POSTed without the builder ever opening.
+    This mirrors the frontend exactly, so the two now refuse the same charts.
+    """
+    if isinstance(condition, Always):
+        return True
+    if isinstance(condition, (And, Or)):
+        return any(_contains_always(sub) for sub in condition.conditions)
+    return False
+
+
 def _check_continuous_steps_have_a_real_receptivity(
     recipe: MasterRecipe, peas: dict[int, PeaModel]
 ) -> None:
@@ -209,11 +239,12 @@ def _check_continuous_steps_have_a_real_receptivity(
     For a continuous procedure the receptivity **is** the completion criterion
     (`POL_Step_Model_ISA88.md` §2), so `Always` would start the service and complete it in
     the same instant. Stated over the whole `from_ids` rather than one step's exit, because
-    a continuous step may also feed an AND-join (chart §4, §5(b)).
+    a continuous step may also feed an AND-join (chart §4, §5(b)), and over the whole
+    condition tree rather than its outermost node (see `_contains_always`).
     """
     steps = {s.id: s for s in recipe.steps}
     for transition in recipe.transitions:
-        if not isinstance(transition.condition, Always):
+        if not _contains_always(transition.condition):
             continue
         for source in transition.from_ids:
             if _procedure(peas, steps[source]).is_self_completing:
