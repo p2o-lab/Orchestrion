@@ -108,10 +108,10 @@ class Always(BaseModel):
     it. Drawn `=1` in GRAFCET ([IEC 60848] §4.3.3: the transition-condition is *"a logical
     expression which is true or false"*; the constant-true one is legal).
 
-    ⚠ **Not valid on a transition with a *continuous* step in its `from_ids`.** There the
+    **Not valid on a transition with a *continuous* step in its `from_ids`.** There the
     receptivity **is** the completion criterion (step model §2), so `Always` would start the
     service and complete it in the same instant. Enforced server-side in `api/recipes.py`
-    (unit 7) and in the builder (`POL_Recipe_Chart_GRAFCET.md` §4).
+    and in the builder (`POL_Recipe_Chart_GRAFCET.md` §4).
     """
 
     type: Literal["Always"] = "Always"

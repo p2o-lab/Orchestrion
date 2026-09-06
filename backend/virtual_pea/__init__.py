@@ -13,6 +13,5 @@ same .aml the POL parses — those come from the vendor file, not from either si
 
 NOT built from the MTPPy framework: its ServiceControl omits 10 of Table 13's
 attributes, invents a Manual source mode and `IsDefault`, assigns the forbidden
-ProcedureID 0, and hardcodes namespace index 3 without registering a URI. See
-docs/progress for the full measurement.
+ProcedureID 0, and hardcodes namespace index 3 without registering a URI.
 """

@@ -6,8 +6,8 @@ import type { StepPhase } from '../ui/runView'
 // sequences "is represented by as many simultaneously enabled transitions as possible
 // evolutions" — the fan-out of transitions *is* the notation, and the standard gives it no
 // glyph. The synchronization symbol of Table 2 [9] belongs to the transition, never here.
-// (Unit 10 first shipped an invented single "OR rail"; it was deleted once the symbol tables
-// were read — `010` §12.)
+// (The canvas first shipped an invented single "OR rail"; it was deleted once the symbol
+// tables were read.)
 
 // A recipe step, rendered as our own Tailwind card (React Flow only positions/connects it).
 // `data` carries both the display strings and the underlying step fields, so the builder can

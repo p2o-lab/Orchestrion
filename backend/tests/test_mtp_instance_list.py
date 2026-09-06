@@ -117,7 +117,7 @@ def test_pea_information_label_is_reached_by_id_link_not_ref_id(hc30):
     Table 2 declares the attribute `RefIDAttributeType` ("DataAssembly-RefID"); rule
     #7b says it holds the object's *ID* via the ID-link concept. The file settles it:
     the value is the PeaInformationLabel's element ID, and that object's own RefID is
-    a different GUID. Resolving it Table 2's way finds nothing (journal 002 §9.3b).
+    a different GUID. Resolving it Table 2's way finds nothing.
     """
     manifest, root, communication, index = hc30
     assemblies = parser.read_instance_list(ARTIFACT, root, communication, index)

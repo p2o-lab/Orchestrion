@@ -17,7 +17,7 @@ from orchestrion.mtp.parser import read_mtp
 ARTIFACT = Path(__file__).parent / "artifacts" / "2026-05-18-HC30_Stirring_V8.aml"
 
 # MTPPy-generated and malformed: it declares SchemaVersion="3.0" while pointing
-# noNamespaceSchemaLocation at the 2.15 schema (journal 002 §7). Dropped as a
+# noNamespaceSchemaLocation at the 2.15 schema. Dropped as a
 # fixture; used here only to prove the version gate holds end-to-end.
 VISIONFORGE = Path(
     "D:/ProjectDAAD/Orchestrion/reference/Recipol/Recipol/src/artifacts/visionforge.aml"
@@ -92,7 +92,7 @@ def test_rejects_a_manifest_1_0_0_file():
 
     visionforge.aml *claims* SchemaVersion="3.0", so the CAEX gate alone passes — it
     is the aspect-model declaration (Table 36 #2) that catches it. This is why the
-    version check reads both, and never sniffs namespaces (002 §2).
+    version check reads both, and never sniffs namespaces.
     """
     with pytest.raises(MtpVersionError, match="2658-1:Manifest"):
         read_mtp(VISIONFORGE)

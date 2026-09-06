@@ -1,6 +1,6 @@
 // Driving and watching one recipe's run — M5.5(a).
 //
-// Polls `GET …/runs/{id}`, which has been truthful mid-run since `010` §14's P1 fix (before
+// Polls `GET …/runs/{id}`, which has been truthful mid-run since the P1 audit fix (before
 // it, the engine built its own `RecipeRun` and `RunManager` held a placeholder, so a run
 // reported `status:"running", steps:{}` for its entire execution and this view would have
 // rendered an empty chart).
@@ -111,7 +111,7 @@ export function useRun(projectId: number, recipeId: number): RunController {
   // Adopt a run that is already in flight for this recipe. A batch outlives the page that
   // started it — the engine task lives in the backend's loop — so reloading, or navigating
   // away and back, must find the run still there rather than pretend nothing is happening.
-  // Same principle as the PEA connection surviving navigation (journal `005`).
+  // Same principle as the PEA connection surviving navigation.
   useEffect(() => {
     let cancelled = false
     api

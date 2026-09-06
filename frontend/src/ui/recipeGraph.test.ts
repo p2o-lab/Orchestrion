@@ -1,6 +1,6 @@
-// The chart mapping — `docs/POL_Recipe_Chart_GRAFCET.md`, rebuilt at `010` unit 9.
+// The chart mapping — `docs/POL_Recipe_Chart_GRAFCET.md`.
 //
-// **Rewritten, not tweaked.** The previous suite tested AND/OR *bar nodes*, which this unit
+// **Rewritten, not tweaked.** The previous suite tested AND/OR *bar nodes*, which the rebuild
 // deletes: §4.3.2 makes AND/OR **link multiplicity**, so the bars are a drawing convention and
 // never were graph elements. Seven of its sixteen tests described behaviour that no longer
 // exists. START/END nodes went the same way (§1, §3).
@@ -287,7 +287,7 @@ describe('synchronization bars are drawn from link count — Table 2 [9], chart 
 
   it('gives a step with several succeeding transitions NOTHING — a selection has no symbol', () => {
     // [IEC 60848:2013] §6.2.3: a selection of sequences "is represented by as many
-    // simultaneously enabled transitions as possible evolutions". No bar, no rail. Unit 10
+    // simultaneously enabled transitions as possible evolutions". No bar, no rail. The canvas
     // originally drew a single "OR rail" here; it was invented, and the standard deletes it.
     const nodes = [step('s1'), transition('t1'), transition('t2')]
     const edges = [link('s1', 't1'), link('s1', 't2')]

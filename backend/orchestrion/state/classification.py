@@ -23,7 +23,7 @@ design (`POL_Step_Model_ISA88.md` §6), grounded in:
   - items 2341-2369  — PAUSE and HOLD are the two *recoverable* exception levels; STOP
     and ABORT are not.
 
-⚠ MTP's 16 states are NOT the ISA-88 Reference Procedural State Model state for state:
+MTP's 16 states are NOT the ISA-88 Reference Procedural State Model state for state:
 MTP drops SUSPENDING/SUSPENDED/UNSUSPENDING/CLEARING, adds RESUMING, and renames
 RUNNING -> EXECUTE and COMPLETE -> COMPLETED. The *test* above is what we borrow, and it
 is applied here to MTP's own 16 states. (`POL_Step_Model_ISA88.md` §1.)
@@ -131,6 +131,6 @@ def is_final(state: ServiceState) -> bool:
     procedural element reaching a final state, the higher level procedural element...
     may progress its own operating sequence to the next step."
 
-    ⚠ IDLE is *not* final — item 2391 calls it the **Initial** State.
+    IDLE is *not* final — item 2391 calls it the **Initial** State.
     """
     return classify(state) in (StateClass.TERMINAL_NORMAL, StateClass.TERMINAL_ABNORMAL)

@@ -3,8 +3,8 @@
 The control endpoints are plain coroutines that record onto the **global** registry
 (`api/live.registry`, the same object `api/control` imports). This drives them directly
 against a real VirtualPEA in ONE asyncio loop — the API happy path cannot go through
-TestClient (its per-request loop breaks the registry's persistent asyncua connection, see
-journal 006), but calling the coroutines in-loop is exactly the production path.
+TestClient (its per-request loop breaks the registry's persistent asyncua connection), but
+calling the coroutines in-loop is exactly the production path.
 """
 
 from __future__ import annotations

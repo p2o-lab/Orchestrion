@@ -140,7 +140,7 @@ class RunManager:
             project_id=project_id,
             recipe_id=recipe_id,
             recipe_name=recipe.header.name,
-            # ⚠ **The engine's own run object, by identity — not a placeholder.** This is
+            # **The engine's own run object, by identity — not a placeholder.** This is
             # what makes a run observable *while it runs*: the engine mutates it in place,
             # so `GET …/runs/{id}` reports real step states, latched terminals and
             # held/paused status instead of an empty dict until completion.
@@ -158,7 +158,7 @@ class RunManager:
 
         Nothing is reassigned: `record.run` **is** the engine's run object, so it has been
         reporting live all along. The engine converts any plant failure into a failed run
-        itself (unit 6), so reaching the handlers below means the engine broke.
+        itself, so reaching the handlers below means the engine broke.
         """
         try:
             await record.engine.run()
@@ -176,7 +176,7 @@ class RunManager:
     def abort(self, run_id: int) -> RunRecord | None:
         """Ask a live run to stop after its current tick.
 
-        ⚠ Commands **no PEA** — run-level propagation is deferred (step model §10), so
+        Commands **no PEA** — run-level propagation is deferred (step model §10), so
         anything mid-execution keeps running and the run's `error` names it.
         """
         record = self._runs.get(run_id)

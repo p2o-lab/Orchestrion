@@ -16,7 +16,7 @@
 // elements by earlier builders and all four are wrong:
 //   • AND/OR are **link multiplicity**, not elements — §4.3.2: "a directed link connects one or
 //     several steps to a transition, or a transition to one or several steps". The bars are how
-//     you *draw* that; drawing conventions are unit 10's job, not the model's.
+//     you *draw* that; drawing conventions are the canvas's job, not the model's.
 //   • the initial step is **inferred from topology** (§2) and drawn with a double border;
 //   • the end of a branch is an **unwired transition output** (§3, a "pit transition"),
 //     serialised as the `END` sentinel.
@@ -88,7 +88,7 @@ const uniq = (xs: string[]) => [...new Set(xs)]
  * Returns `error` (and no transitions) if the chart breaks a structural rule. Only the rules
  * *inherent to mapping* live here — alternation, dangling links, a transition with no
  * predecessor. The wider rule set (one initial step, no cycles, `Always` on a continuous
- * step) is unit 12's, and is enforced server-side regardless: a recipe can be POSTed straight
+ * step) lives in `validateChart`, and is enforced server-side regardless: a recipe can be POSTed straight
  * past this builder, so the canvas is an authoring aid, never the safety boundary.
  */
 export function graphToTransitions(
@@ -114,7 +114,7 @@ export function graphToTransitions(
   }
 
   // **Emission order is the priority** (chart §8): the engine walks `MasterRecipe.transitions`
-  // by index and the first eligible one to claim a step wins. Before unit 11c this was
+  // by index and the first eligible one to claim a step wins. Before the priority badge this was
   // whatever order the node array happened to hold — an invisible artefact. Now it is the
   // explicit `priority` key, stable-sorted so unranked transitions keep their relative order
   // and land after the ranked ones.
@@ -185,7 +185,7 @@ export function recipeToGraph(recipe: MasterRecipe): { nodes: GraphNode[]; edges
  * Inferred from topology: the one step no transition targets. `null` when there is not
  * exactly one, so the caller can warn while building and block on save.
  *
- * ⚠ The inference is only sound because **cycles are rejected** (§2/§10). IEC 60848's own
+ * The inference is only sound because **cycles are rejected** (§2/§10). IEC 60848's own
  * Figure 2 is a cycle whose double-bordered initial step *is* a transition target — run this
  * over it and you get none. That is a deliberate ISA-88 narrowing, not a GRAFCET claim.
  */
@@ -223,7 +223,7 @@ export function defaultCondition(
  * so it is computed, never stored.
  *
  * The centroid of the steps it links, which places it between them for a series and centred
- * over the fan for a branch. Unit 10 draws the spanning bar from the same neighbour geometry.
+ * over the fan for a branch. The spanning bar is drawn from the same neighbour geometry.
  */
 export function transitionPositions(
   nodes: GraphNode[],
@@ -288,7 +288,7 @@ export const MIN_BAR_HEIGHT = 28
  * **Steps never own a bar.** §6.2.3: a selection of sequences is represented "by as many
  * simultaneously enabled transitions as possible evolutions" — no symbol whatsoever. The
  * single "OR rail" this function used to emit for a branching step was **invented**; it was
- * deleted once the symbol tables were finally read (`010` §12, unit 10 rebuild).
+ * deleted once the symbol tables were finally read.
  *
  * **The bars are drawing, not structure.** AND is link multiplicity (§4.3.2), so a bar is simply
  * how a transition with more than one step on a side is *drawn*. Nothing here changes the graph
@@ -520,7 +520,7 @@ export interface StarvableJoin {
  * fires first it consumes the step, `RESET`s it and marks it `DONE`; since cycles are rejected
  * that step can never be active again, so the join is **permanently dead** and whatever waits on
  * it waits for ever. Nothing malfunctions — the sibling winning is correct SFC arbitration
- * (§8, `engine.py`) — the *combination* is what strands the run. Unit 8's `held_by_armed` closes
+ * (§8, `engine.py`) — the *combination* is what strands the run. The engine's `held_by_armed` closes
  * this only once the join is armed; the window before that is real.
  *
  * **This is a warning and must stay one.** The shape is a legitimate idiom — "wait for both A and
@@ -528,11 +528,11 @@ export interface StarvableJoin {
  * guarantee this check cannot actually give. It also only catches the shapes we thought to
  * enumerate, which is the guessing Rule 1 exists to stop.
  *
- * ⚠ **This is the cheap stand-in, not the fix.** The real answer is a **runtime liveness check**
+ * **This is the cheap stand-in, not the fix.** The real answer is a **runtime liveness check**
  * in the engine: after a pass where nothing fired, compute which transitions are still reachable
  * and fail the run with a named diagnosis when none is. That is *decidable* — it fires exactly
  * when the run is provably dead, needs no threshold, and catches stranded runs from chart forms
- * nobody enumerated here. Deliberately deferred to its own backend unit; see `010`.
+ * nobody enumerated here. Deliberately deferred to its own backend increment.
  */
 export function starvableJoins(nodes: GraphNode[], edges: GraphEdge[]): StarvableJoin[] {
   const fromCount = new Map<string, number>()

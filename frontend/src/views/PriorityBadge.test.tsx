@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The OR-branch priority badge — `docs/POL_Recipe_Chart_GRAFCET.md` §8, `010` unit 11c.
+// The OR-branch priority badge — `docs/POL_Recipe_Chart_GRAFCET.md` §8.
 //
 // Tested in isolation rather than through `TransitionNode`, because React Flow's `<Handle>`
 // needs a node context that only a mounted canvas provides. The *ranking* logic is pure and

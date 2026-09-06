@@ -24,7 +24,7 @@ class StepBindingError(RuntimeError):
     """A step names a PEA/service/procedure this run cannot resolve.
 
     Raised rather than returned: the engine wraps `start`/`complete`/`reset` failures into a
-    failed run (unit 6), so a mis-bound step fails loudly with its own message instead of
+    failed run, so a mis-bound step fails loudly with its own message instead of
     hanging. The API validates the same references up front — this is the last line.
     """
 
@@ -84,7 +84,7 @@ class PlantStepDriver:
 
         Exactly step model §2's opening, in order. `ensure_idle` is what makes a **reused**
         service safe: it `RESET`s a finished one and waits, so the `Start` that follows is
-        not dropped into `COMPLETED` (`010` §2 — the defect this whole correction exists for).
+        not dropped into `COMPLETED` — the defect this whole correction exists for.
         """
         conn, service = self._connection(step), self._service(step)
         await control.ensure_idle(conn, service)

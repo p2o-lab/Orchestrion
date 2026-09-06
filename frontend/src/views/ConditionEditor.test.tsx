@@ -4,7 +4,7 @@
 // `ui/conditions.test.ts` (node environment, fast); this file covers only what genuinely
 // needs a DOM: that the form *renders* what it was handed and *returns* what was authored.
 //
-// The regression it exists for: `010` unit 11a. The old editor knew three leaf kinds, so an
+// The regression it exists for: the old editor knew three leaf kinds, so an
 // incoming `And`/`Or`/`Always` degraded to `StateReached` on open and Save wrote that back,
 // **destroying the authored compound** (chart §11 item 4).
 

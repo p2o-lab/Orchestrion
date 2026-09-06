@@ -19,7 +19,7 @@ import {
 
 // The receptivity editor — `docs/POL_Recipe_Chart_GRAFCET.md` §4.
 //
-// **Rewritten at `010` unit 11a.** The previous version knew three leaf kinds and held eight
+// **Rewritten.** The previous version knew three leaf kinds and held eight
 // `useState` fields. An incoming `And`, `Or` or `Always` fell through to `StateReached` on open
 // and Save then wrote that back — **silently destroying an authored compound** (chart §11
 // item 4). It now edits one `Condition` tree, so every member of the union round-trips and

@@ -28,11 +28,11 @@ router = APIRouter(tags=["peas"])
 def _normalise_endpoint(url: str) -> str:
     """The form two endpoints are compared in — case-folded, no trailing slash.
 
-    ⚠ **Deliberately not clever.** This will not see through `opc.tcp://localhost:48050`
+    **Deliberately not clever.** This will not see through `opc.tcp://localhost:48050`
     versus `opc.tcp://127.0.0.1:48050`, which are the same server spelled two ways.
     Catching that means resolving hostnames inside a request handler — a network call that
     can also be wrong (DNS moves, and this repo already has scars from `localhost`
-    resolving to `::1` while the service sat on IPv4 — journal `001`). Exact-string is
+    resolving to `::1` while the service sat on IPv4). Exact-string is
     right for the case that actually occurs: a plant where only the port differs.
     """
     return url.strip().rstrip("/").casefold()

@@ -162,7 +162,7 @@ def test_structural_validation_still_applies(pea, client):
     assert r.status_code == 422 and "unknown step id" in r.text
 
 
-# ── unit 7b: graph shape ────────────────────────────────────────────────────────────
+# ── graph shape ─────────────────────────────────────────────────────────────────────
 #
 # The engine guards these too, but a recipe can be POSTed straight past the builder —
 # which is exactly how the integration test works — so the API is the real gate. HC30

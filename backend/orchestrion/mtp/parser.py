@@ -79,7 +79,7 @@ REF_ID_ATTRIBUTE_TYPE = "MTPATLib/IDReferenceType/RefIDAttributeType"
 # [2658-1:2022 §8.4 + Table 7 + Table 36 #3] the AT that marks an ID-link, whose
 # value is the *ID of the referenced object*.
 #
-# ⚠ [Table 37 #19b/#19c] — the very rules this implements — call it
+# [Table 37 #19b/#19c] — the very rules this implements — call it
 # "IDLinkReferenceType". **No such AttributeType is defined anywhere in the standard.**
 # §8.4, Table 7 and Table 36 #3 all name IDLinkAttributeType, and conformant files
 # emit it. Matching #19b's prose would bind ZERO nodes, silently.
@@ -166,11 +166,11 @@ INPUT_ELEMENT_CLASS = "MTPDataObjectSUCLib/DataAssembly/InputElement"
 # [2658-1:2022 Table 25] BOOL maps to xs:boolean, whose lexical space is exactly
 # {true, false, 1, 0} — and is **case-sensitive**.
 #
-# ⚠ HC30 declares AttributeDataType="xs:boolean" and then writes "True"/"False",
+# HC30 declares AttributeDataType="xs:boolean" and then writes "True"/"False",
 # which are outside that space — the same vendor-casing deviation as Blatt 1:2019's
 # Annex A writing "xs:Base64Binary" for Table 3's "xs:base64binary". We lower-case
 # before lookup so real files can be read; anything not in this map still RAISES.
-# Decision recorded in the open (user, 2026-07-17) — tolerated visibly, not silently.
+# The divergence is named here rather than absorbed silently.
 #
 # NEVER use bool(value) here: bool("False") is True, and the error would surface as a
 # procedure that mysteriously self-completes.
@@ -188,7 +188,8 @@ def read_mtp(path: Path) -> Pea:
 
     Raises `MtpVersionError` / `MtpStructureError` rather than returning a partial
     model: a silently tolerated non-conformant file is a guess, and a guess that
-    happens to work is a defect (working agreement, Rule 1).
+    happens to work is a defect. Every rule below carries the clause it implements, so
+    anyone holding the standards can verify it against the text.
     """
     manifest = caex.load_manifest(path)
     root = manifest.element.getroottree().getroot()

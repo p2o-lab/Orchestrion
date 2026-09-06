@@ -87,7 +87,7 @@ export function stepViews(
  *  precisely *"S1 finished, waiting for Temp > 80"* — the observable state the four-state
  *  step model exists to make visible (step model §8, §12 item 0a).
  *
- *  ⚠ Not a claim about eligibility — see the header. A transition out of a *continuous*
+ *  Not a claim about eligibility — see the header. A transition out of a *continuous*
  *  step is perfectly able to fire while that step still reads `running`, and this will call
  *  that `idle`. It is describing the report, not predicting the engine. */
 export type TransitionPhase = 'idle' | 'waiting' | 'fired'

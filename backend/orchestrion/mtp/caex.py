@@ -2,12 +2,13 @@
 
 Scope: **manifest 1.1.0 / CAEX 3.0 only**. Anything else is rejected rather than
 parsed on a best effort: a silently tolerated non-conformant file yields a guess,
-and a guess that happens to work is a defect (working agreement, Rule 1).
+and a guess that happens to work is a defect.
 
 Note the schema permits more than the MTP does — e.g. CAEX makes
 ``RefBaseSystemUnitPath`` optional while [2658-1:2022] Table 36 requires the types.
 A file can therefore be schema-valid and still not be an MTP. Every rule enforced
-here cites the clause it comes from.
+here cites the clause it comes from, so anyone holding the standards can follow the
+implementation back to the text it was written from.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ MODULE_TYPE_PACKAGE_CLASS = "MTPSUCLib/ModuleTypePackage"
 # type/version conformity verification. All xs:string; Version and DeviceRevision
 # are Major.Minor.Patch.
 #
-# ⚠ The standard contradicts itself on one spelling: rule #7a's prose says
+# The standard contradicts itself on one spelling: rule #7a's prose says
 # "ManufacturerURI", while Table 2 — the model definition that actually declares
 # the class's attributes — says "ManufacturerUri". Table 2 governs the attribute
 # name (and the real vendor file follows it), so that is what is matched.
@@ -258,14 +259,14 @@ def load_manifest(path: Path) -> Manifest:
 
     # [Table 36 #7a] all four are required, not just Version.
     #
-    # ⚠ #7a imposes a SECOND requirement we deliberately do NOT enforce: "Version
+    # #7a imposes a SECOND requirement we deliberately do NOT enforce: "Version
     # and DeviceRevision shall be specified in the format Major.Minor.Patch"
     # (restated in Table 2). Our HC30 fixture violates it — DeviceRevision is the
     # literal "No Information" — so enforcing it would reject the only conformant
     # 1.1.0 artifact we have.
     #
     # This is a conscious, recorded exception to the fail-hard rule, not an
-    # oversight (user decision, 2026-07-17; see 002 §9.3c). Note it does NOT follow
+    # oversight. Note it does NOT follow
     # from the "#6 requires a Name, not a meaningful one" argument: #6 imposes no
     # format, #7a imposes a checkable one, so "No Information" is format-violating
     # rather than merely lazy. Revisit if a fixture with conformant values appears;

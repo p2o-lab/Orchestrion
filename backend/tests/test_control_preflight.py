@@ -173,7 +173,7 @@ def test_ensure_idle_refuses_a_service_in_use(tmp_path):
 
 def test_ensure_idle_then_start_is_the_full_reuse_cycle(tmp_path):
     """Two consecutive runs of the *self-completing* procedure on one service — the exact
-    case that today runs once and reports success (`progress/010` §2)."""
+    case that once ran only once and still reported success."""
     async def scenario(conn, service):
         for _ in range(2):
             await ensure_idle(conn, service)
@@ -193,7 +193,7 @@ def test_ensure_idle_then_start_is_the_full_reuse_cycle(tmp_path):
 
 
 def test_await_started_accepts_a_final_state(tmp_path):
-    """⚠ The VirtualPEA publishes EXECUTE for one 50 ms scan and never publishes
+    """The VirtualPEA publishes EXECUTE for one 50 ms scan and never publishes
     STARTING, so a self-completing procedure can reach COMPLETED between two polls.
     `await_started` must accept **any** state != IDLE, or it hangs on the normal case."""
     async def scenario(conn, service):

@@ -35,7 +35,7 @@ import {
   type GraphNode,
   type NodeKind,
 } from '../ui/recipeGraph'
-// `summarize` moved to `ui/conditions.ts` at unit 11a — it must recurse now that compounds
+// `summarize` lives in `ui/conditions.ts` — it must recurse now that compounds
 // are authorable, and the tree logic is pure and tested there.
 import { summarize } from '../ui/conditions'
 import { validateChart } from '../ui/validateChart'
@@ -52,7 +52,7 @@ import { RunBar } from './RunBar'
 import { useRun } from '../hooks/useRun'
 import { stepViews, transitionPhase } from '../ui/runView'
 
-// Two node kinds. `and`/`or`/`start`/`end` were deleted at `010` unit 9 — AND/OR are link
+// Two node kinds. `and`/`or`/`start`/`end` were deleted — AND/OR are link
 // multiplicity (chart §4.3.2), the initial step is a double border (§2), and a branch ends by
 // leaving a transition's output unwired (§3).
 const nodeTypes = { step: StepNode, transition: TransitionNode }
@@ -312,7 +312,7 @@ export function RecipeBuilder() {
     [nodes, peaById],
   )
 
-  /** Everything wrong with the chart — unit 12. **Advisory only: it never blocks Save.** The
+  /** Everything wrong with the chart. **Advisory only: it never blocks Save.** The
    *  server enforces the same rules on save (`_validate_against_project`, 422) and is the only
    *  safety boundary (chart §10); if this ever drifts from it, a blocking builder would refuse
    *  work the server would accept. */

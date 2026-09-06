@@ -123,7 +123,7 @@ export const api = {
   getRun: (projectId: number, runId: number) =>
     request<RunReport>(`/api/projects/${projectId}/runs/${runId}`),
   listRuns: (projectId: number) => request<RunReport[]>(`/api/projects/${projectId}/runs`),
-  // ⚠ Commands no PEA — run-level propagation is deferred (step model §10), so anything
+  // Commands no PEA — run-level propagation is deferred (step model §10), so anything
   // mid-execution keeps running and the run's `error` names it.
   abortRun: (projectId: number, runId: number) =>
     request<RunHandle>(`/api/projects/${projectId}/runs/${runId}/abort`, { method: 'POST' }),

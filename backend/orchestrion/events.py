@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 # Per-PEA ring buffer size. Bounded so a long-running session cannot grow without
-# limit; the oldest events fall off once this many are held (user decision, 2026-07-19).
+# limit; the oldest events fall off once this many are held.
 MAX_EVENTS_PER_PEA = 500
 
 

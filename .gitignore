@@ -69,9 +69,8 @@ logs/
 # Runtime SQLite database
 backend/orchestrion.db
 
-# The progress journals — deliberately untracked (removed from history 2026-09-06).
-# They live on disk only, like CLAUDE.md. ⚠ That means git no longer backs them up:
-# they are the project's record of *why*, and nothing else protects them.
+# Working notes — deliberately untracked. They live on disk only, like CLAUDE.md,
+# which means git does not back them up.
 docs/progress/
 
 # Generated VirtualPEA plant manifests — one 541 kB copy of HC30_Stirring_V8_local.aml

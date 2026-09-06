@@ -7,11 +7,11 @@
 // are not an extra we bolted on, they are what the clause describes. The wire union has
 // carried them since M5.0; only the editor could not author them.
 //
-// ⚠ **`Not` is missing from the union**, so a negated receptivity cannot be expressed at all
+// **`Not` is missing from the union**, so a negated receptivity cannot be expressed at all
 // (chart §12 item 3). That is not cosmetic: chart §8's own cited example — [IEC 60848:2013]
 // §6.2.3 EXAMPLE 2, which achieves branch priority with `a` on one branch and `ā·b` on the
 // other — **cannot be written in this editor.** Adding `Not` is a wire-format change and is
-// deliberately out of unit 11a's scope; it is recorded, not silently worked around.
+// deliberately out of this editor's scope; it is recorded, not silently worked around.
 
 import type { Condition } from '../api/types'
 

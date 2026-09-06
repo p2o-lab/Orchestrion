@@ -1,12 +1,12 @@
-"""Running a recipe over HTTP, against live VirtualPEAs — `010` unit 7c.
+"""Running a recipe over HTTP, against live VirtualPEAs.
 
-**This is the test `010` §6 names as the proof the defect is dead**: a recipe POSTed through
+**This is the proof the reuse defect is dead**: a recipe POSTed through
 the API, driven across two real PEAs, *including two consecutive steps on the same PEA using
 the self-completing procedure*. Before the correction that case ran the first step, had its
 second `Start` silently dropped into `COMPLETED`, and reported success.
 
-Everything goes through HTTP — no engine is constructed here. That is the point: until unit
-7c, `RecipeEngine` had no production caller at all, so nothing proved the wiring.
+Everything goes through HTTP — no engine is constructed here. That is the point: until this
+suite existed, `RecipeEngine` had no production caller at all, so nothing proved the wiring.
 
 The VirtualPEAs run on their own loops in background threads (the pattern from
 `test_api_live.py`), so the app — driven by TestClient in its own loop — reaches them over
@@ -118,7 +118,7 @@ def plant():
             s.refresh(row)
             pea_ids.append(row.id)
 
-    # ⚠ `with` is load-bearing, not tidiness. Used bare, `TestClient` spins up a **fresh
+    # `with` is load-bearing, not tidiness. Used bare, `TestClient` spins up a **fresh
     # portal — and therefore a fresh event loop — for every request**. The OPC UA session
     # opened by `/connect` would be bound to a loop that then dies, and the engine task
     # created by `/run` would be torn down the moment that request returned. As a context
@@ -164,8 +164,8 @@ def _await_run(client, project_id: int, run_id: int, *, timeout: float = 60.0) -
 
 
 def test_three_step_recipe_runs_end_to_end_over_http(plant):
-    """⭐ **The proof.** Three steps across two PEAs, where **s2 and s3 are consecutive on
-    the same PEA using the self-completing procedure** — `010` §2's exact defect.
+    """**The proof.** Three steps across two PEAs, where **s2 and s3 are consecutive on
+    the same PEA using the self-completing procedure** — the exact defect.
 
     Every step must terminate for real, and the run must reach `completed` with nothing
     left running.

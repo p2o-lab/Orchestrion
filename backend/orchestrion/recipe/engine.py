@@ -39,7 +39,7 @@ and `HOLD` are *recoverable* — the run reports `paused`/`held`, waits with no 
 resumes on its own when the operator does. `STOP` and `ABORT` are not — the run fails. A PEA
 **disconnecting** also fails it: unlike HELD, the state is then *unknown* (§11).
 
-**Still deferred:** deliberate OR-branch grouping (unit 8), and run-level commands
+**Still deferred:** deliberate OR-branch grouping, and run-level commands
 propagating down to active steps (step model §10) — each noted at its site below.
 
 Decoupled for testability: the engine is handed a `StepDriver` (act on / ask about a step's
@@ -88,7 +88,7 @@ class StepDriver(Protocol):
     async def read_state(self, step: RecipeStep) -> "ServiceState | None":
         """This step's service state, **fresh enough to latch on** (step model §5).
 
-        ⚠ Deliberately **not** the same source as `state_of`. `state_of` reads the live
+        Deliberately **not** the same source as `state_of`. `state_of` reads the live
         snapshot — a subscription cache — which is right for evaluating a receptivity but
         **not** for deciding a step has terminated: on a *reused* service the cache can still
         hold the previous execution's `COMPLETED`, and the latch cannot be fresher than its
@@ -127,7 +127,7 @@ class StepState(str, Enum):
 
     COMPLETING = "completing"
     """*Continuous procedures only* — the receptivity fired, `COMPLETE` was sent, and we
-    are awaiting the final state. **Set by unit 4; never set by this unit.**"""
+    are awaiting the final state."""
 
     TERMINATED = "terminated"
     """A Final State was reached and latched. Gate 1 is satisfied; the step is waiting for
@@ -206,10 +206,10 @@ class RecipeEngine:
         self._run = RecipeRun()
         """The one run object, created up front and mutated in place.
 
-        ⚠ **It must be reachable *before* `run()` returns**, or nothing can observe a run
+        **It must be reachable *before* `run()` returns**, or nothing can observe a run
         while it is running. `run()` used to build its own and hand it back at the end, so
         `RunManager` held a placeholder that stayed `status="running", steps={}` for the
-        whole execution — making unit 6's held/paused reporting and §8's four step states
+        whole execution — making held/paused reporting and §8's four step states
         invisible from outside, and M5.5's live view impossible. Exposed via `state`.
         """
         self._steps = {s.id: s for s in recipe.steps}
@@ -238,7 +238,7 @@ class RecipeEngine:
     def abort(self) -> None:
         """Request the run stop after the current tick (idempotent).
 
-        ⚠ **Commands no PEA.** Run-level `PAUSE`/`HOLD`/`STOP`/`ABORT` propagating down to
+        **Commands no PEA.** Run-level `PAUSE`/`HOLD`/`STOP`/`ABORT` propagating down to
         active steps is deferred (step model §10) — [IEC 61512-1] items 2233-2235 say the
         standard *"does not specify propagation rules"*, so it is ours to design and it is
         not designed yet. Until then an aborted run leaves anything mid-execution running,

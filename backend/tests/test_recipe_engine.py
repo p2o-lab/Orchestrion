@@ -1,8 +1,8 @@
 """Recipe engine loop — unit tests with fakes (no live PEA).
 
-Rewritten for the corrected step model (`docs/POL_Step_Model_ISA88.md`,
-`docs/progress/010` unit 3). **The previous version of this file encoded the wrong
-behaviour** and was rewritten rather than tweaked, per `010` §5:
+Rewritten for the corrected step model (`docs/POL_Step_Model_ISA88.md`).
+**The previous version of this file encoded the wrong behaviour** and was rewritten
+rather than tweaked:
 
   - it used `StateReached … "EXECUTE"` as receptivities, i.e. a transition firing *mid-step*
     — which §3 says cannot happen for a self-completing step;
@@ -280,7 +280,7 @@ def test_abnormal_termination_fails_the_run() -> None:
         assert plant.driven == ["s1"], "a later step started after an abnormal termination"
 
 
-# ── unit 6: exception handling, disconnect, no global timeout ───────────────────────
+# ── exception handling, disconnect, no global timeout ───────────────────────────────
 
 def test_held_is_reported_and_the_run_resumes_on_its_own() -> None:
     """§7 levels 1-2 — HOLD *"enables operator intervention… from which the normal running
@@ -545,7 +545,7 @@ def test_times_out_if_stuck() -> None:
 def test_the_run_is_observable_while_it_runs() -> None:
     """**The audit's P1.** `engine.state` must be the same object `run()` mutates, so a
     caller can watch progress. It used to build its own and hand it back only at the end,
-    which left `RunManager` holding a placeholder stuck at `running`/`{}` — making unit 6's
+    which left `RunManager` holding a placeholder stuck at `running`/`{}` — making the
     held/paused reporting and §8's four step states invisible from outside."""
     plant = FakePlant()
 
@@ -573,8 +573,8 @@ def test_the_run_is_observable_while_it_runs() -> None:
 
 
 def test_held_status_is_visible_while_the_run_is_held() -> None:
-    """The point of P1: unit 6 built held/paused reporting, and nothing outside the engine
-    could see it."""
+    """The point of P1: the engine reported held/paused, and nothing outside it
+    could see that."""
     plant = FakePlant(on_start="HELD")
 
     async def scenario():
@@ -638,7 +638,7 @@ def test_an_armed_transition_holds_its_from_steps() -> None:
     assert plant.completed == ["sA"], plant.completed   # only the continuous branch
 
 
-# ── unit 8: OR arbitration — deliberate, not incidental ─────────────────────────────
+# ── OR arbitration — deliberate, not incidental ─────────────────────────────────────
 
 def _selection(pea_id_x: int = 2, pea_id_y: int = 3) -> MasterRecipe:
     """s0 -> either sX (first listed) or sY. Both branch guards are `Always`, so **both are
@@ -657,7 +657,7 @@ def _selection(pea_id_x: int = 2, pea_id_y: int = 3) -> MasterRecipe:
 
 
 def test_two_simultaneously_true_branches_take_exactly_one() -> None:
-    """The heart of unit 8. Both receptivities hold in the same tick; the earlier-listed
+    """The heart of the arbitration rule. Both receptivities hold in the same tick; the earlier-listed
     transition wins and the other is never taken — no indeterminacy, no double-start."""
     plant = FakePlant(on_start="COMPLETED")
     run = asyncio.run(_engine(_selection(), plant).run())
@@ -682,7 +682,7 @@ def test_branch_priority_is_transition_list_order() -> None:
 def test_a_continuous_step_is_completed_once_when_two_branches_fire_together() -> None:
     """Two branches off one *continuous* step with the **same** guard, both true at once.
 
-    Only one `COMPLETE` may be sent. This held before unit 8 as well — but only because
+    Only one `COMPLETE` may be sent. This held before arbitration existed as well — but only because
     arming mutated the step to `COMPLETING`, which the next transition's `_eligible` then
     rejected. Same answer, reached by side effect. Now it is the arbitration rule doing it,
     and this test pins the guarantee rather than the accident.
@@ -761,7 +761,7 @@ def test_parallel_branches_still_fire_together() -> None:
     assert set(plant.driven) == {"s0", "sA", "sB"}
 
 
-# ── unit 5: `Always`, and the initial-step guard ────────────────────────────────────
+# ── `Always`, and the initial-step guard ────────────────────────────────────────────
 
 def test_always_is_true_and_needs_no_context() -> None:
     """`Always` is the honest spelling of "completion is the only gate" (step model §3)."""
@@ -826,7 +826,7 @@ def test_an_empty_recipe_fails_rather_than_completing() -> None:
     assert run.status == "failed" and "found none" in run.error
 
 
-# ── unit 4: continuous procedures ───────────────────────────────────────────────────
+# ── continuous procedures ───────────────────────────────────────────────────────────
 
 def _hot(pea_id: int = 1) -> ValueThreshold:
     return ValueThreshold(pea_id=pea_id, value_name="Temp", op=">", threshold=80.0)

@@ -6,9 +6,9 @@ import { branchActionFor } from '../ui/recipeGraph'
 //
 // **Two kinds. Nothing else.** §4.3.2/§4.3.3 close the element list at step · transition ·
 // directed link · transition-condition · action. So there is nothing else *to* drop:
-//   • AND / OR were removed at `010` unit 9 — they are **link multiplicity** (§4.3.2), drawn
+//   • AND / OR were removed — they are **link multiplicity** (§4.3.2), drawn
 //     from the links themselves, so branching is authored by *wiring*, not by placing a node.
-//     The branch *actions* below (unit 11b, §7) build that wiring for you — they still create
+//     The branch *actions* below (§7) build that wiring for you — they still create
 //     no new node type, only a step or a transition plus the link.
 //   • START / END likewise: the initial step is inferred and double-bordered (§2), and a
 //     branch ends by leaving a transition's output unwired (§3).

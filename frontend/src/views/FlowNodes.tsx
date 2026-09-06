@@ -41,7 +41,7 @@ function BranchBar({ span, side }: { span: BarSpan; side: 'left' | 'right' }) {
 // here; directed links carry nothing (§3.1.2). Drawn as a short bar crossing the link — the
 // glyph seen in Figure 2 — with the condition summary beside it. Double-click to edit.
 //
-// **AndNode / OrNode / StartNode / EndNode were deleted at `010` unit 9.** AND and OR are
+// **AndNode / OrNode / StartNode / EndNode were deleted.** AND and OR are
 // **link multiplicity** (§4.3.2), not elements. AND gets a symbol — Table 2 [9]'s two parallel
 // lines, rendered below *from* the links — while OR gets none at all (§6.2.3). The initial step
 // is inferred and drawn with a double border (`StepNode`), and the end of a branch is an

@@ -44,7 +44,7 @@ logger = logging.getLogger("virtual_pea.plant")
 HOST = "127.0.0.1"
 """Everything is served on the loopback IPv4 address, matching the source manifest.
 
-Not `localhost`: this repo has already paid for that once (journal `001`) — Node resolves
+Not `localhost`: this repo has already paid for that once — Node resolves
 `localhost` to `::1` while a service bound to `127.0.0.1` is not there, and the failure is a
 bare ECONNREFUSED. A literal address skips name resolution entirely.
 """
@@ -257,8 +257,8 @@ async def serve(manifests: list[Manifest], idle: list[Manifest] | None = None) -
     """Run every manifest as a VirtualPEA until interrupted.
 
     All of them share **one event loop**, exactly as the live tests do, so one Ctrl+C stops
-    the whole plant and there are no orphaned children to hunt afterwards (journal `001`:
-    killing a launcher does not kill the server it spawned).
+    the whole plant and there are no orphaned children to hunt afterwards: killing a
+    launcher does not kill the server it spawned.
     """
     taken = [m for m in manifests if not _port_is_free(m.port)]
     if taken:
@@ -276,7 +276,7 @@ async def serve(manifests: list[Manifest], idle: list[Manifest] | None = None) -
             await server.start()
             servers.append(server)
 
-        # ⚠ `flush=True` on every line of the summary, and it is not tidiness. Python
+        # `flush=True` on every line of the summary, and it is not tidiness. Python
         # line-buffers stdout only when it is a terminal; redirect the plant to a file or a
         # pipe and the whole summary sits in the buffer **for as long as the plant runs** —
         # which is for ever. The one thing this tool must always manage to say is which

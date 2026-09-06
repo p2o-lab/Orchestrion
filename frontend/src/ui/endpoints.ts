@@ -10,7 +10,7 @@
 // So this is the *visible* half. The import dialog warns at the moment it happens; this
 // backs the persistent badge on the PEA cards, because the conflict outlives the dialog.
 //
-// ⚠ **This mirrors a server rule, so it can drift from it** — which is exactly how the
+// **This mirrors a server rule, so it can drift from it** — which is exactly how the
 // nested-`Always` gap survived (the builder walked the tree, the server checked only the
 // outermost node, and the server was the lax one). Both sides normalise the same way, and
 // share the same stated limitation.
@@ -21,7 +21,7 @@ import type { PeaSummary } from '../api/types'
  * The form two endpoints are compared in — trimmed, no trailing slash, lower-cased.
  * Mirrors `peas.py::_normalise_endpoint`.
  *
- * ⚠ Deliberately not clever: this does **not** see through `opc.tcp://localhost:48050`
+ * Deliberately not clever: this does **not** see through `opc.tcp://localhost:48050`
  * versus `opc.tcp://127.0.0.1:48050`, which are the same server spelled two ways. Seeing
  * through it means resolving hostnames, which the browser cannot do and the server should
  * not do inside a request handler. Exact-string is right for the case that occurs — a

@@ -286,10 +286,10 @@ async def await_state(
 async def await_started(conn: PeaConnection, service: Service) -> ServiceState:
     """Wait until the service has left `IDLE` after a `Start`.
 
-    ⚠ **Any** state other than `IDLE` counts as started — including a *final* state.
+    **Any** state other than `IDLE` counts as started — including a *final* state.
     A self-completing procedure can run to `COMPLETED` between two polls (the VirtualPEA
-    publishes `EXECUTE` for a single 50 ms scan and never publishes `STARTING` at all —
-    `progress/010` §7), so waiting for an *acting* state would hang forever on exactly
+    publishes `EXECUTE` for a single 50 ms scan and never publishes `STARTING` at all),
+    so waiting for an *acting* state would hang forever on exactly
     the case the step model exists to fix.
     """
     return await await_state(

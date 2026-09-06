@@ -1,4 +1,4 @@
-// Chart validation for the builder — `010` unit 12, `docs/POL_Recipe_Chart_GRAFCET.md` §10.
+// Chart validation for the builder — `docs/POL_Recipe_Chart_GRAFCET.md` §10.
 //
 // **This is an authoring aid, not a safety boundary.** The server enforces all of this on save
 // (`api/recipes.py:_validate_against_project`, HTTP 422) and a recipe can be `POST`ed straight
@@ -111,7 +111,7 @@ function checkNoCycles(nodes: GraphNode[], edges: GraphEdge[]): ChartProblem[] {
  * Uses `containsAlways`, which walks the tree: an `Always` nested inside an `Or` is exactly as
  * fatal as a bare one, because an `Or` is true the moment any child is.
  *
- * ✅ **The server now agrees.** It used to test `isinstance(cond, Always)` — the outermost node
+ * **The server now agrees.** It used to test `isinstance(cond, Always)` — the outermost node
  * only — so this module was stricter and a nested one could be flagged here and still save.
  * `_check_continuous_steps_have_a_real_receptivity` walks the tree too since `2b9f281`. Worth
  * remembering as the shape of the bug rather than the bug: **when a builder rule mirrors a

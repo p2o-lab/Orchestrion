@@ -36,7 +36,7 @@ class IdentifierType(str, Enum):
     straight off the file with nothing invented in between. Needed to build the
     NodeId in M2.
 
-    ⚠ Blatt 1:2019 contradicts itself here. **Table 3 (normative) says
+    Blatt 1:2019 contradicts itself here. **Table 3 (normative) says
     `xs:integer` and `xs:base64binary`**; its own Annex A example writes `xs:int`
     and `xs:Base64Binary`, and HC30 copies the Annex's wording. The standard
     decides — these are Table 3's spellings. Real files may carry the Annex's, and
@@ -44,7 +44,7 @@ class IdentifierType(str, Enum):
     quietly widening the enum here.
 
     (Blatt 5.1 v0.1.0 would replace this mechanism with an AttributeType derived
-    from OPCUABaseNodeIDType; no real file does that yet — see 002 §6.4.)
+    from OPCUABaseNodeIDType; no real file does that yet.)
     """
 
     STRING = "xs:string"
@@ -249,7 +249,7 @@ class Pea:
     """[Table 36 #7a] Major.Minor.Patch. §12.3: MTP↔PEA version *compatibility* is
     determined by this field.
 
-    ⚠ #7a's format is deliberately not enforced (journal 002 §9.3c) and HC30 ships
+    #7a's format is deliberately not enforced and HC30 ships
     "No Information" here — so §12.3 cannot succeed against that fixture."""
 
     manufacturer_uri: str

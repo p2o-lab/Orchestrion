@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The palette's branch actions — `docs/POL_Recipe_Chart_GRAFCET.md` §7, `010` unit 11b.
+// The palette's branch actions — `docs/POL_Recipe_Chart_GRAFCET.md` §7.
 //
 // The point of the gating is pedagogical: each action is enabled **only** on the node kind
 // that can legally open that structure, so the palette teaches §4.3.2's link multiplicity
@@ -85,7 +85,7 @@ describe('the greyed action says what to select', () => {
 describe('the two droppable kinds are still just step and transition', () => {
   it('offers no AND, OR, START or END block', () => {
     open(null)
-    // §4.3.2 closes the element list; bar/START/END nodes were deleted at unit 9.
+    // §4.3.2 closes the element list; bar/START/END nodes were deleted.
     for (const gone of ['AND', 'OR', 'Start', 'End']) expect(screen.queryByText(gone)).toBeNull()
     expect(screen.getByText('Step')).toBeTruthy()
     expect(screen.getByText('Transition')).toBeTruthy()

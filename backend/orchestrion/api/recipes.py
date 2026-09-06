@@ -135,18 +135,18 @@ def _procedure(peas: dict[int, PeaModel], step: RecipeStep) -> ServiceProcedure:
 def _check_exactly_one_initial_step(recipe: MasterRecipe) -> None:
     """[IEC 61512-1] item 1337 — a procedure has *"a defined beginning and end"*. Singular.
 
-    The engine guards this too (unit 5), but a recipe can be `POST`ed straight past the
+    The engine guards this too, but a recipe can be `POST`ed straight past the
     builder, so the API is where a malformed one has to be stopped — the builder is an
     authoring aid, not a safety boundary (`POL_Recipe_Chart_GRAFCET.md` §2).
 
-    ⚠ An **empty** recipe is exempt (2026-09-05). `ProjectView.createRecipe` posts
+    An **empty** recipe is exempt (2026-09-05). `ProjectView.createRecipe` posts
     `steps: []` / `transitions: []` and then opens the canvas on the stored row, so
     gating creation on this check made a new recipe impossible: zero steps yields zero
     initial steps, which is not one, so the endpoint answered 422 before the author could
     draw anything. The message compounded it, reporting "every step is a transition
     target (a cycle?)" when there were no steps and no cycle. A recipe with no shape yet
     has no shape to check, and nothing unrunnable can start regardless: the run path
-    guards the initial step independently (`010` unit 5).
+    guards the initial step independently.
     """
     if not recipe.steps:
         return
@@ -215,12 +215,12 @@ def _check_no_cycles(recipe: MasterRecipe) -> None:
 def _contains_always(condition: Condition) -> bool:
     """Does `Always` appear anywhere in this condition tree?
 
-    ⚠ Added 2026-09-05, replacing an `isinstance(condition, Always)` test that read only the
+    Added 2026-09-05, replacing an `isinstance(condition, Always)` test that read only the
     OUTERMOST node. That test passed a nested `Always` straight through, and
     `Or[Always, ...]` is exactly as fatal as a bare `Always`: an `Or` is true the moment any
     child is, so a continuous service would be started and completed in the same instant.
     Only a bare `Always` was ever refused, and the frontend's `containsAlways` had walked the
-    tree since `010` unit 12 — the two sides disagreed, and the server was the lax one, which
+    tree all along — the two sides disagreed, and the server was the lax one, which
     is the side that matters because a recipe can be POSTed without the builder ever opening.
     This mirrors the frontend exactly, so the two now refuse the same charts.
     """
@@ -361,8 +361,8 @@ def delete_recipe(project_id: int, recipe_id: int, session: Session = Depends(ge
 
 # ── running a recipe ────────────────────────────────────────────────────────────────
 #
-# Until now `RecipeEngine` had no production caller at all — it existed only for tests
-# (`010` §2). This is the seam that makes it reachable.
+# Until now `RecipeEngine` had no production caller at all — it existed only for tests.
+# This is the seam that makes it reachable.
 
 
 def _run_or_404(run_id: int, project_id: int) -> RunRecord:
@@ -438,7 +438,7 @@ def list_runs(project_id: int) -> list[dict]:
 def abort_run(project_id: int, run_id: int) -> dict:
     """Ask a live run to stop after its current tick.
 
-    ⚠ Commands **no PEA** — run-level propagation down to active steps is deferred
+    Commands **no PEA** — run-level propagation down to active steps is deferred
     (step model §10: [IEC 61512-1] items 2233-2235 say the standard *"does not specify
     propagation rules"*). Anything mid-execution keeps running, and the run's `error`
     names it so the operator is told rather than left to find out.

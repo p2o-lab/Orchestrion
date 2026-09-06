@@ -1,6 +1,6 @@
 """The engine against live VirtualPEA instances — the corrected step model.
 
-**Rewritten at `010` unit 3, not tweaked** (`010` §5). The previous version was built
+**Rewritten, not tweaked.** The previous version was built
 entirely on the *continuous* procedure with `StateReached … "EXECUTE"` receptivities, and
 asserted `run.status == "completed"` **while asserting both services were still EXECUTE**.
 That is the behaviour this correction removes: a step is `initiate + await termination`
@@ -9,12 +9,12 @@ That is the behaviour this correction removes: a step is `initiate + await termi
 Both procedure kinds are covered: the **self-completing** `HC30_Stirring_Duration`, and the
 **continuous** `HC30_Stirring_Continous`, which only ends when the POL sends `COMPLETE`.
 
-`drive` and `reset` are wired the way unit 7 will wire them in production:
+`drive` and `reset` are wired the way production wires them:
 `ensure_idle` -> `start_service` -> `await_started`, and `command_service(RESET)`.
 
-⚠ **Known limitation, recorded for unit 7.** `state_of` reads `registry.snapshot()`, a
+**Known limitation.** `state_of` reads `registry.snapshot()`, a
 200 ms subscription cache, while the VirtualPEA cycles a self-completing procedure in
-~100 ms (`010` §7). On a **reused** service the cache can therefore still hold the previous
+~100 ms. On a **reused** service the cache can therefore still hold the previous
 run's `COMPLETED` when the engine first observes the next step. The step model's latch (§5)
 records the observation at a known instant, but it cannot be fresher than its source. These
 tests assert what is unambiguous — that every step was really driven and really reset — and
@@ -204,14 +204,14 @@ def test_linear_recipe_across_two_peas(tmp_path):
 
 
 def test_two_consecutive_steps_on_one_pea(tmp_path):
-    """⭐ **The defect, dead.** Two steps in a row on the SAME service using the
-    self-completing procedure — `010` §2's exact case.
+    """**The defect, dead.** Two steps in a row on the SAME service using the
+    self-completing procedure.
 
     Before this correction: s1 finished into COMPLETED, s2's `Start` was silently dropped
     (not enabled in COMPLETED), the next transition asked "COMPLETED?", got yes, and the
     recipe reported success having run once.
 
-    Now s2 cannot be dropped: pre-flight RESETs the finished service first, and unit 2's
+    Now s2 cannot be dropped: pre-flight RESETs the finished service first, and the
     `CommandEn` guard would raise rather than let a write vanish. Both steps really run.
     """
     plant = Plant({1: _aml_on_port(tmp_path, 48162, "pea1.aml")})
@@ -271,9 +271,9 @@ def test_parallel_branches_across_three_peas(tmp_path):
 
 
 def test_continuous_step_is_ended_by_its_receptivity(tmp_path):
-    """⭐ **The other half of the defect.** `HC30_Stirring_Continous` holds EXECUTE for
+    """**The other half of the defect.** `HC30_Stirring_Continous` holds EXECUTE for
     ever; `[2658-4:2022]` §6.2.3.2 says only an explicit `Complete` from the POL ends it.
-    Before unit 4 the engine never sent one, so a continuous step deadlocked the recipe.
+    The engine used to never send one, so a continuous step deadlocked the recipe.
 
     Here the receptivity IS the completion criterion (step model §2): after 1 s of real
     stirring the engine sends `Complete`, the service walks to `COMPLETED`, and only then
