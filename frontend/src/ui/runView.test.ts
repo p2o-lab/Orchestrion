@@ -19,6 +19,7 @@ function report(over: Partial<RunReport> = {}): RunReport {
     error: null,
     steps: {},
     terminal: {},
+    interrupted: {},
     started_at: '2026-09-06T10:00:00+00:00',
     finished_at: null,
     events: [],
@@ -58,6 +59,29 @@ describe('stepViews', () => {
     expect(views({ s: 'terminated' }, { s: 'STOPPED' }).get('s')!.abnormal).toBe(true)
     expect(views({ s: 'terminated' }, { s: 'ABORTED' }).get('s')!.abnormal).toBe(true)
     expect(views({ s: 'terminated' }, { s: 'COMPLETED' }).get('s')!.abnormal).toBe(false)
+  })
+
+  it('reports which step is HELD, not merely that the run is', () => {
+    // The step stays `running` — HELD is neither acting nor final, so the engine leaves it
+    // there. Without the engine telling us *which*, the chart pulsed "running" on the very
+    // step waiting for an operator (audit 2026-09-06).
+    const v = stepViews(
+      ['s1', 's2'],
+      report({ status: 'held', steps: { s1: 'running', s2: 'running' },
+               interrupted: { s1: 'HELD' } }),
+    )
+    expect(v.get('s1')!.interrupted).toBe('HELD')
+    expect(v.get('s1')!.phase).toBe('running')   // unchanged — this is why the field exists
+    // …and the genuinely-working parallel step is NOT tarred with it. Inferring "the run is
+    // held, so shade every running step" would have got exactly this case wrong.
+    expect(v.get('s2')!.interrupted).toBeUndefined()
+  })
+
+  it('treats a report with no interrupted map as nothing interrupted', () => {
+    const stale = { ...report({ steps: { s1: 'running' } }) } as Record<string, unknown>
+    delete stale.interrupted
+    const v = stepViews(['s1'], stale as never)
+    expect(v.get('s1')!.interrupted).toBeUndefined()
   })
 
   it('is all-pending when there is no run at all', () => {

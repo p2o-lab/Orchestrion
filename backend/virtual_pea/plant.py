@@ -68,6 +68,12 @@ MANIFESTS = Path(__file__).resolve().parent / "manifests"
 DEFAULT_BASE_PORT = 48050
 DEFAULT_COUNT = 3
 
+MIN_PORT, MAX_PORT = 1, 65535
+"""The TCP port range. Enforced because nothing else does, and going past it is silent:
+`endpoint_for(65536)` produces a perfectly well-formed-looking URL, the manifest is written,
+and only the *next* run discovers that `urlparse().port` refuses to parse it — by which time
+the folder cannot be read at all."""
+
 
 class PlantError(RuntimeError):
     """The manifest folder cannot be served as a plant."""
@@ -127,7 +133,17 @@ def scan(folder: Path) -> list[Manifest]:
             )
         seen[key] = path
 
-        port = urlparse(endpoint).port
+        try:
+            port = urlparse(endpoint).port
+        except ValueError as exc:
+            # `urlparse` **raises** for a port outside 0-65535 rather than returning None.
+            # Left bare, one bad manifest poisoned the entire folder: every later command
+            # died here with "Port out of range 0-65535" and no file name, so there was
+            # nothing to act on and no way back except deleting files by guesswork.
+            raise PlantError(
+                f"{path.name}: endpoint {endpoint} has an impossible port — {exc}. "
+                "Delete or repoint that manifest."
+            ) from exc
         if port is None:
             raise PlantError(f"{path.name}: endpoint {endpoint} carries no port")
         found.append(Manifest(path=path, endpoint=endpoint, port=port))
@@ -149,6 +165,17 @@ def _create(folder: Path, port: int) -> Manifest:
             "must be updated to match it."
         )
     path = folder / manifest_name(port)
+    if path.exists():
+        # **Never overwrite.** A file named for one port may declare another — rename or
+        # repoint one by hand and the two disagree — and this used to clobber it: the
+        # original manifest was lost, `ensure` returned more entries than there were files,
+        # and two of them pointed at the same path, which `serve` would then try to bind
+        # twice. `ensure` avoids reaching here; this is the second line, because a function
+        # that can destroy data on a caller's mistake is a defect waiting for one.
+        raise PlantError(
+            f"{path.name} already exists — refusing to overwrite it. If it is stale, "
+            "delete it; the plant regenerates whatever it needs."
+        )
     path.write_text(text.replace(SOURCE_ENDPOINT, endpoint), encoding="utf-8")
     return Manifest(path=path, endpoint=endpoint, port=port)
 
@@ -176,6 +203,8 @@ def ensure(
     """
     if count < 1:
         raise PlantError(f"--count must be at least 1, got {count}")
+    if not MIN_PORT <= base_port <= MAX_PORT:
+        raise PlantError(f"--base-port must be {MIN_PORT}-{MAX_PORT}, got {base_port}")
 
     existing = scan(folder)
     if serve_all:
@@ -188,7 +217,17 @@ def ensure(
     created: list[Manifest] = []
     port = base_port
     while len(existing) + len(created) < count:
-        if port not in used:
+        if port > MAX_PORT:
+            raise PlantError(
+                f"ran out of ports: asked for {count} manifests from {base_port}, and "
+                f"there are not that many free below {MAX_PORT}."
+            )
+        # A port is available only if **no manifest declares it AND no file is named for
+        # it**. Those two can disagree — a manifest renamed or repointed by hand — and
+        # trusting the declared set alone is what let `_create` overwrite a file it had not
+        # counted, losing that manifest and returning two entries for one path.
+        taken = port in used or (folder / manifest_name(port)).exists()
+        if not taken:
             created.append(_create(folder, port))
             used.add(port)
         port += 1
@@ -203,11 +242,13 @@ def _port_is_free(port: int) -> bool:
     another terminal — is reported by name instead of as an asyncua traceback halfway
     through bringing the plant up, with some servers already started.
     """
+    if not MIN_PORT <= port <= MAX_PORT:
+        return False  # not bindable, and `bind` would raise OverflowError, not OSError
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((HOST, port))
-        except OSError:
+        except (OSError, OverflowError):
             return False
     return True
 

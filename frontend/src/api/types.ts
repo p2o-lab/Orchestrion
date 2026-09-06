@@ -187,6 +187,13 @@ export interface RunReport {
   /** **The latch** (step model §5) — which Final State each terminated step reached, as a
    *  [2658-4 Table 14] `ServiceState` name, recorded at the instant it was observed. */
   terminal: Record<string, string>
+  /** Which steps are `HELD` or `PAUSED` **right now** (step model §7 levels 1-2).
+   *
+   *  `status` says the run is held; this says *where*. It cannot be derived from `steps`,
+   *  because an interrupted step stays `running` there — HELD is neither acting nor final,
+   *  so the engine's `_observe` falls through. Recomputed every pass, so it clears itself
+   *  when the operator releases the service. */
+  interrupted: Record<string, string>
   started_at: string
   finished_at: string | null
   events: RunEvent[]

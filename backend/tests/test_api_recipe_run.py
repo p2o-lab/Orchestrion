@@ -241,6 +241,10 @@ def test_the_run_reports_its_event_trail(plant):
     assert any("transition fired" in m for m in messages)
     assert any("completed" in m for m in messages)
     assert all("timestamp" in e for e in final["events"])
+    # The wire contract M5.5's chart reads. `interrupted` is empty here — nothing was held —
+    # but it must be *present*, or the view cannot tell "nothing held" from "old backend".
+    assert final["interrupted"] == {}
+    assert set(final) >= {"status", "steps", "terminal", "interrupted", "error", "events"}
 
 
 def test_running_the_same_recipe_twice_is_refused(plant):

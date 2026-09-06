@@ -45,6 +45,13 @@ export interface StepRunView {
    *  levels ([IEC 61512-1] items 2355-2369). The run fails on these, so they are drawn as
    *  failure rather than as completion. */
   abnormal: boolean
+  /** `HELD` or `PAUSED` — an operator is intervening on **this** step, right now.
+   *
+   *  Read from the report rather than inferred. The tempting inference — "the run is held,
+   *  so shade the running steps" — is wrong the moment two branches run in parallel: it
+   *  would label a genuinely working step as held. The engine knows exactly which service
+   *  it saw interrupted, so it says so, and this reads it. */
+  interrupted?: string
 }
 
 /** Terminal states, by how ISA-88 grades them — `state/classification.py`'s
@@ -65,6 +72,9 @@ export function stepViews(
       phase,
       terminal,
       abnormal: terminal !== undefined && ABNORMAL_TERMINALS.has(terminal),
+      // `?? undefined` because an older report (or a fake in a test) may not carry the map
+      // at all; an absent field must read as "not interrupted", never as a crash.
+      interrupted: report?.interrupted?.[id] ?? undefined,
     })
   }
   return views

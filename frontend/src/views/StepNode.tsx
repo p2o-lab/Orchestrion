@@ -35,6 +35,8 @@ export interface StepNodeData {
   terminal?: string
   /** That Final State was STOPPED or ABORTED — the non-recoverable levels. */
   abnormal?: boolean
+  /** `HELD` / `PAUSED` — an operator is intervening on this step right now. */
+  interrupted?: string
   [key: string]: unknown
 }
 
@@ -73,10 +75,16 @@ export function StepNode({ data, selected }: NodeProps) {
   const d = data as StepNodeData
   const phase = d.runPhase ?? 'pending'
   const running = phase === 'running' || phase === 'completing'
-  const tone = d.abnormal
-    ? { ring: 'ring-2 ring-danger/50 border-danger', chip: 'bg-danger/15 text-danger',
-        label: d.terminal ?? 'failed' }
-    : PHASE[phase]
+  // An interrupted step outranks its phase, and that is the whole point: HELD is neither
+  // acting nor final, so the engine leaves it `running` — it would otherwise pulse green as
+  // "working" while it is in fact the one step waiting for an operator (audit 2026-09-06).
+  const tone = d.interrupted
+    ? { ring: 'ring-2 ring-st-held/60 border-st-held', chip: 'bg-st-held/15 text-st-held',
+        label: d.interrupted.toLowerCase() }
+    : d.abnormal
+      ? { ring: 'ring-2 ring-danger/50 border-danger', chip: 'bg-danger/15 text-danger',
+          label: d.terminal ?? 'failed' }
+      : PHASE[phase]
 
   return (
     <div

@@ -19,6 +19,12 @@ import { isLive } from '../ui/runView'
  *  enough that a long batch is not thousands of requests an hour. */
 const POLL_MS = 600
 
+/** Backoff after a failed poll. Slower, because the likely causes — a restarted backend, a
+ *  dropped connection — do not resolve in half a second, and hammering one that is not there
+ *  helps nobody. But it **keeps trying**: the run is still executing on the plant, and the
+ *  view has to be able to catch up again on its own. */
+const POLL_ERROR_MS = 2500
+
 export interface RunController {
   /** The latest report, or `null` when this recipe has never been run in this session. */
   report: RunReport | null
@@ -52,10 +58,20 @@ interface RunSlot {
   key: number
   report: RunReport | null
   error: string | null
+  /** Bumped on **every** completed poll, success or failure.
+   *
+   *  Load-bearing: the poll effect re-arms itself off its own dependencies, and on a failure
+   *  the report object is reused by reference — so without this the dependency array would
+   *  be unchanged, the effect would not re-run, and **no further timer would ever be
+   *  scheduled**. One dropped request would silently end live updates for the rest of the
+   *  session. Found in the 2026-09-06 audit. */
+  tick: number
 }
 
 export function useRun(projectId: number, recipeId: number): RunController {
-  const [slot, setSlot] = useState<RunSlot>({ key: recipeId, report: null, error: null })
+  const [slot, setSlot] = useState<RunSlot>({
+    key: recipeId, report: null, error: null, tick: 0,
+  })
   const [busy, setBusy] = useState(false)
 
   const fresh = slot.key === recipeId
@@ -64,12 +80,31 @@ export function useRun(projectId: number, recipeId: number): RunController {
 
   const put = useCallback(
     (patch: Partial<Omit<RunSlot, 'key'>>) =>
-      setSlot((prev) => ({
-        key: recipeId,
-        report: prev.key === recipeId ? prev.report : null,
-        error: prev.key === recipeId ? prev.error : null,
-        ...patch,
-      })),
+      setSlot((prev) => {
+        const mine = prev.key === recipeId
+        return {
+          key: recipeId,
+          report: mine ? prev.report : null,
+          error: mine ? prev.error : null,
+          tick: mine ? prev.tick : 0,
+          ...patch,
+        }
+      }),
+    [recipeId],
+  )
+
+  /** Adopt a run **only if nothing is already showing.**
+   *
+   *  The mount-time listing is asynchronous, so it can land *after* a fast `Run` click and
+   *  overwrite the run just started with the older one from the listing. Guarded here rather
+   *  than with a flag, because the condition is exactly "there is nothing to replace". */
+  const adoptIfEmpty = useCallback(
+    (found: RunReport) =>
+      setSlot((prev) =>
+        prev.key === recipeId && prev.report !== null
+          ? prev
+          : { key: recipeId, report: found, error: null, tick: 0 },
+      ),
     [recipeId],
   )
 
@@ -87,16 +122,17 @@ export function useRun(projectId: number, recipeId: number): RunController {
         // Prefer a live one; otherwise show the most recent, so the last outcome is still
         // on screen instead of the view looking as though nothing ever ran.
         const adopt = mine.find((r) => isLive(r.status)) ?? mine[0]
-        if (adopt) put({ report: adopt })
+        if (adopt) adoptIfEmpty(adopt)
       })
       .catch(() => undefined) // a listing failure must not block authoring
     return () => {
       cancelled = true
     }
-  }, [projectId, recipeId, put])
+  }, [projectId, recipeId, adoptIfEmpty])
 
-  // The poll re-arms itself: each new report re-runs this effect, so there is exactly one
-  // timer in flight and it stops on its own the moment the run reaches a terminal status.
+  // The poll re-arms itself off `slot.tick`, which every completed attempt bumps — so it
+  // keeps going **whether the last one succeeded or failed**, and stops only when the run
+  // reaches a terminal status. Exactly one timer is in flight at a time.
   useEffect(() => {
     if (report === null || !isLive(report.status)) return
     let cancelled = false
@@ -104,19 +140,23 @@ export function useRun(projectId: number, recipeId: number): RunController {
       api
         .getRun(projectId, report.run_id)
         .then((next) => {
-          if (!cancelled) put({ report: next })
+          // A good reading clears a previous complaint: a blip that recovered is not
+          // something to keep telling the operator about.
+          if (!cancelled) put({ report: next, error: null, tick: slot.tick + 1 })
         })
         .catch((e) => {
-          // A poll failure is not a run failure — the run is in the backend and carries on.
-          // Surface it and stop polling rather than hammering a backend that is not there.
-          if (!cancelled) put({ error: message(e) })
+          // A poll failure is **not** a run failure — the run lives in the backend and
+          // carries on. So surface it and KEEP POLLING, more slowly: the earlier version
+          // stopped for good here, and a single dropped request during a two-hour batch
+          // froze the view with no way back short of a reload.
+          if (!cancelled) put({ error: message(e), tick: slot.tick + 1 })
         })
-    }, POLL_MS)
+    }, error === null ? POLL_MS : POLL_ERROR_MS)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [report, projectId, put])
+  }, [report, projectId, put, slot.tick, error])
 
   const start = useCallback(async () => {
     setBusy(true)

@@ -257,6 +257,7 @@ export function RecipeBuilder() {
         sameRank(d.rank, wantRank) &&
         d.runPhase === wantPhase &&
         d.terminal === view?.terminal &&
+        d.interrupted === view?.interrupted &&
         Boolean(d.abnormal) === Boolean(view?.abnormal)
       )
         return n
@@ -271,6 +272,7 @@ export function RecipeBuilder() {
           rank: wantRank,
           runPhase: wantPhase,
           terminal: view?.terminal,
+          interrupted: view?.interrupted,
           abnormal: view?.abnormal ?? false,
         },
       }

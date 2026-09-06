@@ -61,6 +61,9 @@ class RunRecord:
             "error": self.run.error,
             "steps": {sid: state.value for sid, state in self.run.steps.items()},
             "terminal": {sid: st.name for sid, st in self.run.terminal.items()},
+            # Which steps are HELD/PAUSED right now. `status` says the run is held; this
+            # says *where*, which `steps` cannot — an interrupted step stays `running` there.
+            "interrupted": {sid: st.name for sid, st in self.run.interrupted.items()},
             "started_at": self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "events": self.events,

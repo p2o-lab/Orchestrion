@@ -152,6 +152,14 @@ class RecipeRun:
     terminal: dict[str, ServiceState] = field(default_factory=dict)
     """**The latch** (step model §5) — which Final State each terminated step reached,
     recorded at the instant it was observed. Gate 1 reads this, never live state."""
+    interrupted: dict[str, ServiceState] = field(default_factory=dict)
+    """Which steps are currently `HELD` or `PAUSED` — step model §7 levels 1-2.
+
+    Recomputed every pass and **cleared by itself** when the operator releases the service,
+    exactly like `status`. It exists because `status` alone says a run is held without saying
+    *where*: an interrupted step stays `RUNNING` in `steps` (HELD is neither acting nor
+    final, so `_observe` falls through), so nothing downstream could tell a held step from a
+    working one. Reported so an operator can see which module is waiting on them."""
     error: str | None = None
 
     @property
@@ -400,6 +408,9 @@ class RecipeEngine:
         # operator resumes the service the run picks up again on its own, with no clock and
         # nothing failed. HELD outranks PAUSED: [2658-4:2022] §6.2.2 puts Hold at level 3 and
         # Pause at level 1, and §7 grades HOLD as the more severe intervention.
+        # Replaced wholesale, never merged: a step that has resumed must drop out of the
+        # map on the very next pass, the same way `status` returns to `running` by itself.
+        run.interrupted = dict(interrupted)
         observed = "running"
         if any(s is ServiceState.HELD for s in interrupted.values()):
             observed = "held"

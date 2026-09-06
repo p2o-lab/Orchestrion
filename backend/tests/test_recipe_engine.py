@@ -305,6 +305,41 @@ def test_held_is_reported_and_the_run_resumes_on_its_own() -> None:
     assert any("recipe held" in e for e in events), events
 
 
+def test_a_held_run_names_which_step_is_held_and_clears_it_on_resume() -> None:
+    """`status` says a run is held; `interrupted` says **where**.
+
+    Without it nothing downstream can tell a held step from a working one: an interrupted
+    step stays `RUNNING` in `steps`, because HELD is neither acting nor final and `_observe`
+    falls through. That left the live chart pulsing "running" on the very step waiting for
+    an operator — found in the 2026-09-06 audit.
+    """
+    plant = FakePlant(on_start="HELD")
+    events: list[str] = []
+
+    async def scenario():
+        engine = _engine(_linear(), plant, tick=0.005, timeout=None, on_event=events.append)
+        task = asyncio.create_task(engine.run())
+        await asyncio.sleep(0.05)
+        assert engine.state.status == "held"
+        assert engine.state.interrupted == {"s1": ServiceState.HELD}
+        # …and the step itself is still RUNNING, which is exactly why `interrupted` is needed
+        assert engine.state.steps["s1"] is StepState.RUNNING
+
+        plant.finish(1)                       # the operator releases the service
+        await asyncio.sleep(0.03)
+        # s1 drops out by itself, like `status` — the map is replaced each pass, not merged.
+        # (s2 has started by now and this fake holds *every* step, so the map is not empty —
+        # which is the sharper check: it proves replacement rather than a blanket clear.)
+        assert "s1" not in engine.state.interrupted
+        assert engine.state.interrupted == {"s2": ServiceState.HELD}
+        plant.finish(2)
+        return await task
+
+    run = asyncio.run(scenario())
+    assert run.status == "completed", run.error
+    assert run.interrupted == {}
+
+
 def test_paused_is_reported_and_held_outranks_it() -> None:
     """PAUSE is the milder level (§7 level 1; [2658-4] §6.2.2 puts Pause at level 1 and Hold
     at level 3), so a run with both must report the more severe one."""

@@ -18,6 +18,8 @@ import pytest
 from orchestrion.mtp.parser import read_mtp
 from virtual_pea.plant import (
     PlantError,
+    _create,
+    _port_is_free,
     endpoint_for,
     ensure,
     manifest_name,
@@ -158,3 +160,87 @@ def test_an_empty_folder_scans_to_nothing(tmp_path):
 def test_a_count_below_one_is_refused(tmp_path):
     with pytest.raises(PlantError, match="at least 1"):
         ensure(tmp_path, count=0)
+
+
+# ── the port-allocation defects found in the 2026-09-06 audit ─────────────────────────────
+#
+# All three had one root cause: allocation trusted a manifest's *declared* port, and had no
+# upper bound. Each is pinned by the case that actually proved it.
+
+
+def test_a_manifest_whose_name_disagrees_with_its_port_is_never_overwritten(tmp_path):
+    """The data-loss case. A file named for one port that declares another — the shape you
+    get by renaming or repointing a manifest by hand — used to be silently clobbered:
+    the original was lost, `ensure` returned three entries for two files, and two of them
+    pointed at the same path, which `serve` would then try to bind twice."""
+    ensure(tmp_path, count=1, base_port=48099)
+    (tmp_path / manifest_name(48099)).rename(tmp_path / manifest_name(48051))
+    assert _ports(scan(tmp_path)) == [48099]   # the NAME says 48051, the file says 48099
+
+    to_serve, _ = ensure(tmp_path, count=3, base_port=48050)
+
+    # The 48099 manifest survives, and nothing was allocated onto its filename.
+    assert 48099 in _ports(scan(tmp_path))
+    assert len(to_serve) == 3
+    # Every returned manifest is a distinct file on a distinct port — the invariant.
+    assert len({m.path for m in to_serve}) == 3
+    assert len({m.port for m in to_serve}) == 3
+    assert all(m.path.exists() for m in to_serve)
+
+
+def test_a_taken_filename_is_skipped_even_when_its_port_is_free(tmp_path):
+    """The narrower half of the same rule: a name may be occupied while its port is not."""
+    ensure(tmp_path, count=1, base_port=48099)
+    (tmp_path / manifest_name(48099)).rename(tmp_path / manifest_name(48050))
+
+    to_serve, _ = ensure(tmp_path, count=2, base_port=48050)
+
+    # 48050's *filename* is taken, so the new manifest went to 48051.
+    assert sorted(_ports(to_serve)) == [48051, 48099]
+
+
+def test_running_out_of_ports_is_a_message_not_an_unreadable_folder(tmp_path):
+    """Allocation used to walk straight past 65535, writing a manifest whose port cannot be
+    parsed — after which **every** later command died in `scan` with no file name."""
+    with pytest.raises(PlantError, match="ran out of ports"):
+        ensure(tmp_path, count=3, base_port=65534)
+
+    # And what it did manage to write is still readable, which is the part that matters.
+    scan(tmp_path)
+
+
+def test_a_base_port_outside_the_tcp_range_is_refused(tmp_path):
+    with pytest.raises(PlantError, match="base-port"):
+        ensure(tmp_path, count=1, base_port=70000)
+    with pytest.raises(PlantError, match="base-port"):
+        ensure(tmp_path, count=1, base_port=0)
+
+
+def test_an_impossible_port_in_a_manifest_names_the_file(tmp_path):
+    """If one ever gets in — hand-written, or from an older build — the error must say which
+    file, or there is nothing to act on."""
+    ensure(tmp_path, count=1, base_port=48050)
+    broken = tmp_path / "broken.aml"
+    broken.write_text(
+        (tmp_path / manifest_name(48050))
+        .read_text(encoding="utf-8")
+        .replace("opc.tcp://127.0.0.1:48050", "opc.tcp://127.0.0.1:99999"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PlantError, match="broken.aml"):
+        scan(tmp_path)
+
+
+def test_the_port_check_refuses_an_out_of_range_port_instead_of_crashing(tmp_path):
+    """`bind` raises OverflowError there — not an OSError — so it escaped the guard and
+    surfaced as a traceback from the one function whose job is a clean message."""
+    assert _port_is_free(65536) is False
+    assert _port_is_free(0) is False
+
+
+def test_create_refuses_to_overwrite(tmp_path):
+    """The second line of defence, independent of `ensure`'s allocation."""
+    ensure(tmp_path, count=1, base_port=48050)
+    with pytest.raises(PlantError, match="already exists"):
+        _create(tmp_path, 48050)
