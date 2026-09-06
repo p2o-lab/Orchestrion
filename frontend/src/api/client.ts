@@ -5,10 +5,13 @@
 import type {
   MasterRecipe,
   PeaDetail,
+  PeaImported,
   PeaSummary,
   Project,
   RecipeDetail,
   RecipeSummary,
+  RunHandle,
+  RunReport,
 } from './types'
 
 export interface LiveSnapshot {
@@ -112,8 +115,23 @@ export const api = {
   deleteRecipe: (projectId: number, recipeId: number) =>
     request<void>(`/api/projects/${projectId}/recipes/${recipeId}`, { method: 'DELETE' }),
 
+  // Runs (M5.5). `startRun` returns as soon as the run is launched — a batch can last hours
+  // (step model §11), so nothing here waits for it; poll `getRun` for progress.
+  // 409 on: already running, or a referenced PEA is not connected (the message names them).
+  startRun: (projectId: number, recipeId: number) =>
+    request<RunHandle>(`/api/projects/${projectId}/recipes/${recipeId}/run`, { method: 'POST' }),
+  getRun: (projectId: number, runId: number) =>
+    request<RunReport>(`/api/projects/${projectId}/runs/${runId}`),
+  listRuns: (projectId: number) => request<RunReport[]>(`/api/projects/${projectId}/runs`),
+  // ⚠ Commands no PEA — run-level propagation is deferred (step model §10), so anything
+  // mid-execution keeps running and the run's `error` names it.
+  abortRun: (projectId: number, runId: number) =>
+    request<RunHandle>(`/api/projects/${projectId}/runs/${runId}/abort`, { method: 'POST' }),
+
   // Multipart import; on 422 ApiError.message is the parser's clause-level message.
-  async importPea(projectId: number, name: string, file: File): Promise<PeaSummary> {
+  // On success the body may carry a non-blocking `warning` (duplicate endpoint) — the
+  // import still happened, so the dialog shows it rather than treating it as a failure.
+  async importPea(projectId: number, name: string, file: File): Promise<PeaImported> {
     const form = new FormData()
     form.append('name', name)
     form.append('file', file)
@@ -122,6 +140,6 @@ export const api = {
       const body = await res.json().catch(() => undefined)
       throw new ApiError(res.status, messageFrom(body, res), body)
     }
-    return res.json() as Promise<PeaSummary>
+    return res.json() as Promise<PeaImported>
   },
 }

@@ -198,10 +198,17 @@ Orchestrion/                    (repo root)
       ├─ ui/                    PURE, framework-free, heavily tested — recipeGraph.ts (canvas ⇄ engine mapping, synchronization bars,
       │                         branch actions, OR priority) · conditions.ts (receptivity trees) · validateChart.ts · icons · primitives
       ├─ views/                 workspace → project → PeaView (live state, control, value display + gauges)
-      │                         + the recipe builder: RecipeBuilder · StepNode · FlowNodes · ConditionEditor · NodePalette · StepEditor
+      │                         + the recipe builder: RecipeBuilder · StepNode · FlowNodes · ConditionEditor · NodePalette ·
+      │                         StepEditor · RecipeSettings · branchPriority.ts (the OR-priority context — its own file
+      │                         because react-refresh cannot preserve a context exported from a component file)
       ├─ hooks/                 useLiveState.ts (the per-PEA WebSocket)
       └─ api/                   client.ts · types.ts (the wire model, mirrors the backend schemas)
 ```
+
+> **Frontend tests are co-located, so they do not appear as a directory** (unlike the backend's
+> `tests/`). `ui/*.test.ts` are the pure suites — `recipeGraph` · `conditions` · `validateChart`;
+> `views/*.test.tsx` are the Tier-2 DOM ones — `ConditionEditor` · `NodePalette` · `PriorityBadge`,
+> each under a per-file `@vitest-environment jsdom` docblock so the pure suites stay on the fast path.
 
 > **Naming note (`model.py`).** `ServiceProcedure` here is an **internal Python class name** and is a free
 > choice. **The CAEX path the parser matches is the standard's: `MTPServiceSUCLib/Service/Procedure`**

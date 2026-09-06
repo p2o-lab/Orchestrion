@@ -69,5 +69,10 @@ logs/
 # Runtime SQLite database
 backend/orchestrion.db
 
+# Generated VirtualPEA plant manifests — one 541 kB copy of HC30_Stirring_V8_local.aml
+# per module, differing only in the declared endpoint. Reproducible at any time with
+# `python -m virtual_pea.plant`, so they are artifacts, not sources.
+backend/virtual_pea/manifests/
+
 # transient test PEA files
 backend/virtual_pea/_ws_test_*.aml

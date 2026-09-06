@@ -17,6 +17,16 @@ export interface PeaSummary {
   created_at: string
 }
 
+/** The import response — mirrors `schemas.py::PeaImported`.
+ *
+ *  A `PeaSummary` that may carry a **non-blocking** warning: the import succeeded, but
+ *  there is something the operator should know. Today the only case is another PEA in the
+ *  same project already on this OPC UA endpoint, which means two modules talking to one
+ *  server. Only this response has the field — list and rename return a plain `PeaSummary`. */
+export interface PeaImported extends PeaSummary {
+  warning: string | null
+}
+
 export interface NodeInfo {
   name: string
   namespace: string
@@ -140,6 +150,52 @@ export interface RecipeSummary {
 
 export interface RecipeDetail extends RecipeSummary {
   definition: MasterRecipe
+}
+
+// ── Runs (M5.5) — mirror `recipe/runs.py::RunRecord.to_dict()` ──────────────────────
+
+/** A run's status. **Observed, not commanded** (step model §10): `held`/`paused` are derived
+ *  each pass from the steps' live states and clear again by themselves when the operator
+ *  resumes the service. Only the three terminal values are set once and final. */
+export type RunStatus = 'running' | 'held' | 'paused' | 'completed' | 'failed' | 'aborted'
+
+/** Where one step is in its lifecycle — `POL_Step_Model_ISA88.md` §8, and the engine's
+ *  `StepState`. Four, not two:
+ *  - `running`     — the service is in an acting state ([IEC 61512-1] item 2382);
+ *  - `completing`  — *continuous only*: the receptivity fired, `COMPLETE` was sent, and the
+ *                    engine is awaiting the final state;
+ *  - `terminated`  — a Final State was reached and **latched**; gate 1 is satisfied and the
+ *                    step is waiting on its transition's receptivity (gate 2). This is the
+ *                    state that makes *"S1 finished, waiting for Temp > 80"* observable;
+ *  - `done`        — the transition fired; the step is settled and its service was `RESET`. */
+export type StepState = 'running' | 'completing' | 'terminated' | 'done'
+
+export interface RunEvent {
+  timestamp: string // ISO 8601, UTC
+  message: string
+}
+
+export interface RunReport {
+  run_id: number
+  project_id: number
+  recipe_id: number
+  recipe_name: string
+  status: RunStatus
+  error: string | null
+  /** Only steps that have been **activated** appear; one not yet reached is absent. */
+  steps: Record<string, StepState>
+  /** **The latch** (step model §5) — which Final State each terminated step reached, as a
+   *  [2658-4 Table 14] `ServiceState` name, recorded at the instant it was observed. */
+  terminal: Record<string, string>
+  started_at: string
+  finished_at: string | null
+  events: RunEvent[]
+}
+
+/** What `POST …/run` and `POST …/abort` return. */
+export interface RunHandle {
+  run_id: number
+  status: RunStatus
 }
 
 // Live-state messages over the WebSocket (backend/orchestrion/api/live.py).

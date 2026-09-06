@@ -43,16 +43,24 @@ would have made this view render an empty chart.
 
 Four separable pieces, in rough size order:
 
-- **a. Run status hook + launch/abort wiring** — small. Poll `GET …/runs/{id}`. **No backend change.**
-- **b. The live chart view** — the bulk. A read-only canvas with active steps highlighted. Reuses
-  `recipeToGraph` and the existing nodes; needs a run-state rendering pass and a non-editable mode.
+- ~~**a. Run status hook + launch/abort wiring**~~ — ✅ **BUILT 2026-09-06**,
+  [`progress/011`](progress/011_plant_launcher_and_endpoint_warning.md) §4. `hooks/useRun.ts`
+  (polling, and it **adopts** a run already in flight) + `views/RunBar.tsx`. `Run` is blocked while
+  the canvas is dirty, because it executes the *stored* definition.
+- ~~**b. The live chart view**~~ — ✅ **BUILT 2026-09-06.** `ui/runView.ts` (pure, 19 tests) maps the
+  report to per-step and per-transition display state; `StepNode` and `TransitionNode` render it.
+  All five phases proven against a real 2-PEA stack, including `terminated` — *"finished, waiting"*.
+  ⚠ **Not yet opened in a browser.** A non-editable mode was not added: Save is disabled while a run
+  is live (the server 409s anyway), but the canvas is still editable underneath.
 - **c. A run WebSocket, replacing the poll** — medium, and genuinely optional. `live.py` +
   `hooks/useLiveState.ts` are a close precedent for PEA state; **there is no run WS today.**
 - **d. Pause/resume** — **does not exist at any layer.** See A2; it belongs with M5.6, not here.
-- **e. A helper to launch N VirtualPEA instances as a demo plant** — *named in `009`'s M5.5 brief and in
-  the design doc §7, never built.* `virtual_pea/run.py` starts **one** server (`--endpoint`); there is
-  no way to bring up a 3-PEA plant in one command. Without it there is nothing multi-PEA to *watch*,
-  which is the point of the view. Small, and it is test/demo tooling rather than product.
+- ~~**e. A helper to launch N VirtualPEA instances as a demo plant**~~ — ✅ **BUILT 2026-09-06**,
+  [`progress/011`](progress/011_plant_launcher_and_endpoint_warning.md). `virtual_pea/plant.py`:
+  `--count N` serves N modules from one process, generating a manifest per port (the endpoint lives
+  *inside* the `.aml`, so N instances need N files). **Done first, not last** — HC30 declares one
+  service, so without it there is nothing multi-PEA to watch and (b) would be built against a chart
+  that can only hold one module. Same commit added the **duplicate-endpoint warning** on import.
 
 > **The one Rule 1 edge in an otherwise free-design milestone.** How a running step is *drawn* is
 > ours — Ed. 3.0's Table 2 [7] NOTE 4 even puts transition symbolism outside IEC 60848. But the
@@ -121,7 +129,14 @@ the runtime check won — is `010` **§15**, including the intended shape. Worth
 a stranded run is exactly what the live view will otherwise show as "running for ever" with no
 explanation.
 
-### B2 · 🚩 The server accepts a nested `Always`
+### B2 · ✅ CLOSED — the server accepted a nested `Always`
+
+> **Fixed 2026-09-05, committed `2b9f281`.** `_check_continuous_steps_have_a_real_receptivity`
+> now calls `_contains_always`, which walks the tree, so the server refuses exactly the
+> charts the builder flags. The description below is what was wrong, kept for the record.
+> *(The same commit exempted an **empty** recipe from the initial-step check: `ProjectView`
+> creates a recipe with `steps: []` and then opens the canvas on it, so gating creation on
+> "exactly one initial step" made a new recipe impossible.)*
 
 `api/recipes.py:_check_continuous_steps_have_a_real_receptivity` tests
 `isinstance(transition.condition, Always)` — a **bare** `Always` only. An `Always` **nested inside an

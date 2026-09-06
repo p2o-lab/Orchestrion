@@ -15,6 +15,12 @@ export function ImportDialog({
   const [name, setName] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** A **successful** import that the operator still needs to see — today, a duplicate
+   *  endpoint. Held in state because the dialog must NOT close on it: the import worked,
+   *  so there is nothing to retry, but a message that vanishes with the dialog is a
+   *  message nobody reads. The conflict outlives this dialog, which is why `ProjectView`
+   *  also badges the cards. */
+  const [warning, setWarning] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -29,8 +35,12 @@ export function ImportDialog({
     setBusy(true)
     setError(null)
     try {
-      await api.importPea(projectId, name.trim(), file)
+      const imported = await api.importPea(projectId, name.trim(), file)
       onImported()
+      if (imported.warning) {
+        setWarning(imported.warning)
+        return // the PEA is stored; hold the dialog open so the warning is actually seen
+      }
       onClose()
     } catch (e) {
       // The parser's clause-level message (HTTP 422) — shown inline, highlighted.
@@ -85,11 +95,28 @@ export function ImportDialog({
         </div>
       )}
 
+      {warning && (
+        <div className="mt-4 rounded-lg border border-warn/40 bg-warn/10 px-3.5 py-3">
+          <div className="text-xs font-semibold uppercase tracking-wider text-warn">
+            Imported — with a conflict
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-ink/90">{warning}</div>
+        </div>
+      )}
+
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={submit} disabled={busy || !file || !name.trim()}>
-          {busy ? 'Validating…' : 'Import'}
-        </Button>
+        {warning ? (
+          // The import succeeded, so there is nothing to cancel and nothing to retry —
+          // one button that acknowledges and closes.
+          <Button variant="primary" onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={submit} disabled={busy || !file || !name.trim()}>
+              {busy ? 'Validating…' : 'Import'}
+            </Button>
+          </>
+        )}
       </div>
     </Modal>
   )

@@ -49,6 +49,26 @@ class PeaSummary(BaseModel):
     created_at: datetime
 
 
+class PeaImported(PeaSummary):
+    """The import response — a `PeaSummary` that may carry a non-blocking warning.
+
+    Deliberately its own model rather than a field on `PeaSummary`: that one is also the
+    list and rename response and is mirrored in `api/types.ts`, so a `warning` field there
+    would be permanently `null` on every other use. This is the one response that can
+    produce one.
+    """
+
+    warning: str | None = None
+    """Something the operator should know about, on an import that nonetheless succeeded.
+
+    Today the only case is a duplicate OPC UA endpoint within the project — see
+    `api/peas.py::_endpoint_conflict`. **Never a reason to refuse the import**: the
+    condition is recoverable (rename, repoint, delete) and the run path already fails
+    loudly on the consequence, so blocking here would be stricter than the layer that
+    actually matters.
+    """
+
+
 class NodeSchema(BaseModel):
     name: str
     namespace: str

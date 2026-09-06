@@ -48,6 +48,9 @@ import { ConditionEditor } from './ConditionEditor'
 import { StepEditor } from './StepEditor'
 import { RecipeSettings } from './RecipeSettings'
 import { NodePalette, DRAG_KEY, type PaletteKind } from './NodePalette'
+import { RunBar } from './RunBar'
+import { useRun } from '../hooks/useRun'
+import { stepViews, transitionPhase } from '../ui/runView'
 
 // Two node kinds. `and`/`or`/`start`/`end` were deleted at `010` unit 9 — AND/OR are link
 // multiplicity (chart §4.3.2), the initial step is a double border (§2), and a branch ends by
@@ -99,6 +102,16 @@ export function RecipeBuilder() {
   const [showSettings, setShowSettings] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  /** The canvas holds semantic edits that are not in the database yet.
+   *
+   *  This is **not** cosmetic bookkeeping: `Run` executes the **stored** definition, so
+   *  running with unsaved changes would drive a chart that is not the one on screen — the
+   *  worst kind of wrong, because everything would look right. `saved` cannot serve here;
+   *  it is a 2-second "Saved ✓" flash, false again almost immediately.
+   *
+   *  Node *positions* deliberately do not set it: `x`/`y` are UI-only and non-normative
+   *  (`model.py:72-73`), so a dragged layout changes nothing about what the run does. */
+  const [dirty, setDirty] = useState(false)
   const [rf, setRf] = useState<ReactFlowInstance | null>(null)
   const [showMiniMap, setShowMiniMap] = useState(true)
   const dropPos = useRef<{ x: number; y: number } | null>(null)
@@ -120,6 +133,14 @@ export function RecipeBuilder() {
       .then(setPeas)
       .catch((e) => setError(String(e?.message ?? e)))
   }, [pid, rid])
+
+  /** One edit happened: clear the "Saved ✓" flash and mark the chart unsaved. */
+  const markEdited = useCallback(() => {
+    setSaved(false)
+    setDirty(true)
+  }, [])
+
+  const run = useRun(pid, rid)
 
   const peaById = useCallback((id: number) => peas?.find((p) => p.id === id), [peas])
   const procedureName = useCallback(
@@ -194,6 +215,15 @@ export function RecipeBuilder() {
     // The ①②③ badge is derived too: wiring a second transition off a step *creates* a
     // selection, and deleting one dissolves it (chart §8).
     const ranks = branchRanks(graphNodes, graphEdges)
+    // Run state is derived here too, for the same reason as the rest: it is a *function* of
+    // the report and the topology, never something authored. `stepViews` marks a step the
+    // run has not reached `pending`; `transitionPhase` reports `waiting` when every
+    // preceding step has terminated and the transition still has not fired — which is the
+    // chart saying "this is the condition it is sitting on".
+    const runByStep = stepViews(
+      graphNodes.filter((n) => n.kind === 'step').map((n) => n.id),
+      run.report,
+    )
     const same = (a?: BarSpan, b?: BarSpan) =>
       a === b || (!!a && !!b && a.offsetY === b.offsetY && a.height === b.height && a.count === b.count)
     const sameRank = (a?: { rank: number; of: number }, b?: { rank: number; of: number }) =>
@@ -207,21 +237,46 @@ export function RecipeBuilder() {
       const flagKey = n.type === 'step' ? 'isInitial' : 'isPit'
       const found = ranks.get(n.id)
       const wantRank = found ? { rank: found.rank, of: found.of } : undefined
+
+      const view = n.type === 'step' ? runByStep.get(n.id) : undefined
+      // `undefined` when nothing has ever run, so the chart looks exactly as it did before
+      // M5.5 until there is a run to show.
+      const wantPhase = run.report === null
+        ? undefined
+        : n.type === 'step'
+          ? view?.phase
+          : transitionPhase(
+              graphEdges.filter((e) => e.target === n.id).map((e) => e.source),
+              runByStep,
+            )
+
       if (
         d[flagKey] === wantFlag &&
         same(d.barIn, bar?.incoming) &&
         same(d.barOut, bar?.outgoing) &&
-        sameRank(d.rank, wantRank)
+        sameRank(d.rank, wantRank) &&
+        d.runPhase === wantPhase &&
+        d.terminal === view?.terminal &&
+        Boolean(d.abnormal) === Boolean(view?.abnormal)
       )
         return n
       changed = true
       return {
         ...n,
-        data: { ...n.data, [flagKey]: wantFlag, barIn: bar?.incoming, barOut: bar?.outgoing, rank: wantRank },
+        data: {
+          ...n.data,
+          [flagKey]: wantFlag,
+          barIn: bar?.incoming,
+          barOut: bar?.outgoing,
+          rank: wantRank,
+          runPhase: wantPhase,
+          terminal: view?.terminal,
+          abnormal: view?.abnormal ?? false,
+        },
       }
     })
     if (changed) setNodes(next)
-  }, [nodes, edges, setNodes])
+  }, [nodes, edges, setNodes, run.report])
 
 
   /** Is this step's procedure self-completing? Straight off the PEA's parsed MTP
@@ -288,18 +343,18 @@ export function RecipeBuilder() {
           )
         }
       }
-      setSaved(false)
+      markEdited()
     },
-    [nodes, edges, setEdges, setNodes, isValidConnection, stepIsSelfCompleting],
+    [nodes, edges, setEdges, setNodes, isValidConnection, stepIsSelfCompleting, markEdited],
   )
 
   function updateTransitionCondition(nodeId: string, condition: Condition) {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { condition, label: summarize(condition) } } : n)))
-    setSaved(false)
+    markEdited()
   }
   function updateStepParams(nodeId: string, params: Record<string, number>) {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, params } } : n)))
-    setSaved(false)
+    markEdited()
   }
 
   function addStep(peaId: number, service: string, procedureId: number) {
@@ -322,14 +377,14 @@ export function RecipeBuilder() {
       },
     ])
     if (from) setEdges((es) => [...es, arrow(from, id, `e-${from}-${id}-${Date.now()}`)])
-    setSaved(false)
+    markEdited()
   }
   /** Drop a bare transition. It has no receptivity until a step is wired into it — only then
    *  is it known whether a default is even valid (chart §4). */
   function addBlock(kind: 'transition', position = { x: 360, y: 180 }) {
     const id = `${kind}-${Date.now()}`
     setNodes((ns) => [...ns, { id, type: kind, position, data: { isPit: true } satisfies TransitionNodeData }])
-    setSaved(false)
+    markEdited()
   }
 
   // ── branch actions — chart §7 ─────────────────────────────────────────────────────────
@@ -373,7 +428,7 @@ export function RecipeBuilder() {
       },
     ])
     setEdges((es) => [...es, arrow(stepId, id, `e-${stepId}-${id}-${Date.now()}`)])
-    setSaved(false)
+    markEdited()
   }
 
   /** Raise or lower a branch's priority — chart §8. Swaps two `priority` keys, which changes
@@ -393,9 +448,9 @@ export function RecipeBuilder() {
           return { ...n, data: { ...n.data, priority: next.priority } }
         })
       })
-      setSaved(false)
+      markEdited()
     },
-    [edges, setNodes],
+    [edges, setNodes, markEdited],
   )
 
   function onBranch(action: BranchAction) {
@@ -448,6 +503,7 @@ export function RecipeBuilder() {
       const summary = await api.updateRecipe(pid, rid, definition)
       setRecipe({ ...recipe, ...summary, definition })
       setSaved(true)
+      setDirty(false)   // what is on the canvas is now what a Run would execute
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
       setError(String((e as Error)?.message ?? e))
@@ -490,12 +546,24 @@ export function RecipeBuilder() {
           <Button variant="ghost" small onClick={() => setShowSettings(true)} disabled={!recipe}>
             <Icon name="pencil" size={15} /> Settings
           </Button>
-          <Button variant="primary" small onClick={save} disabled={saving || !recipe}>
+          {/* The server refuses to update a recipe while it is running (409,
+              `_refuse_while_running`) — the run holds its own parsed copy, so the stored
+              row and what the plant is doing would silently disagree. Disabled here so the
+              refusal is visible before the click rather than after it. */}
+          <Button
+            variant="primary"
+            small
+            onClick={save}
+            disabled={saving || !recipe || run.live}
+            title={run.live ? 'Cannot edit a recipe while it is running — abort the run first' : undefined}
+          >
             {saving && <Spinner className="h-4 w-4" />}
             {saving ? 'Saving' : saved ? 'Saved ✓' : 'Save'}
           </Button>
         </div>
       </div>
+
+      {recipe && peas && <RunBar run={run} dirty={dirty} onSave={save} />}
 
       {recipe && peas && (
         <NodePalette
@@ -533,8 +601,8 @@ export function RecipeBuilder() {
                 fitView
                 minZoom={0.2}
                 deleteKeyCode={['Delete', 'Backspace']}
-                onNodesDelete={() => setSaved(false)}
-                onEdgesDelete={() => setSaved(false)}
+                onNodesDelete={markEdited}
+                onEdgesDelete={markEdited}
                 style={{ backgroundColor: '#171c27' }} // --color-canvas
               >
                 <Background bgColor="#171c27" color="rgba(255,255,255,0.07)" gap={22} size={1} />
@@ -611,7 +679,7 @@ export function RecipeBuilder() {
           header={header}
           formula={formula}
           onClose={() => setShowSettings(false)}
-          onSave={(h, f) => { setHeader(h); setFormula(f); setSaved(false); setShowSettings(false) }}
+          onSave={(h, f) => { setHeader(h); setFormula(f); markEdited(); setShowSettings(false) }}
         />
       )}
     </div>

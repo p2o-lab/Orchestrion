@@ -109,6 +109,71 @@ def test_pea_detail_exposes_the_value_model(client, project):
         assert procedure["process_values"] == []
 
 
+def _on_port(port: int) -> bytes:
+    """The local HC30 manifest, repointed — the plant launcher's rewrite, in one line."""
+    return (
+        LOCAL_AML.read_text(encoding="utf-8")
+        .replace("opc.tcp://127.0.0.1:48050", f"opc.tcp://127.0.0.1:{port}")
+        .encode("utf-8")
+    )
+
+
+def test_a_first_import_carries_no_warning(client, project):
+    assert _import(client, project).json()["warning"] is None
+
+
+def test_a_second_pea_on_the_same_endpoint_warns_but_still_imports(client, project):
+    """Non-blocking by design: the condition is recoverable, and the *run* path already
+    fails loudly on the consequence (`ensure_idle` finds the shared service in EXECUTE)."""
+    _import(client, project, name="Reactor_A")
+
+    resp = _import(client, project, name="Reactor_B")
+
+    assert resp.status_code == 201, "a duplicate endpoint is a warning, never a refusal"
+    warning = resp.json()["warning"]
+    assert warning is not None
+    assert "Reactor_A" in warning and "opc.tcp://127.0.0.1:48050" in warning
+    # and it really was stored — the warning did not cost the operator the import
+    assert {p["name"] for p in client.get(f"/api/projects/{project}/peas").json()} == {
+        "Reactor_A", "Reactor_B",
+    }
+
+
+def test_distinct_endpoints_do_not_warn(client, project):
+    """The plant case: same module, different ports — exactly what `--count 3` produces."""
+    _import(client, project, name="Reactor_A", content=_on_port(48050))
+
+    resp = _import(client, project, name="Reactor_B", content=_on_port(48051))
+
+    assert resp.json()["warning"] is None
+
+
+def test_the_warning_names_every_earlier_pea_on_that_endpoint(client, project):
+    _import(client, project, name="Reactor_A")
+    _import(client, project, name="Reactor_B")
+
+    warning = _import(client, project, name="Reactor_C").json()["warning"]
+
+    assert "Reactor_A" in warning and "Reactor_B" in warning
+
+
+def test_the_same_endpoint_in_another_project_does_not_warn(client, project):
+    """Scoped to the project on purpose: a recipe binds its steps within one, and the same
+    physical module legitimately appears in two plant configurations."""
+    other = client.post("/api/projects", json={"name": "Line B"}).json()["id"]
+    _import(client, project, name="Reactor_A")
+
+    assert _import(client, other, name="Reactor_A").json()["warning"] is None
+
+
+def test_the_list_and_rename_responses_carry_no_warning_field(client, project):
+    """`warning` belongs to the import response alone — `PeaSummary` stays clean."""
+    pea_id = _import(client, project).json()["id"]
+
+    assert "warning" not in client.get(f"/api/projects/{project}/peas").json()[0]
+    assert "warning" not in client.patch(f"/api/peas/{pea_id}", json={"name": "M"}).json()
+
+
 def test_rename_and_delete_pea(client, project):
     pea_id = _import(client, project).json()["id"]
     assert client.patch(f"/api/peas/{pea_id}", json={"name": "Mixer"}).json()["name"] == "Mixer"

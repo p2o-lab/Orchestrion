@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { PeaSummary, RecipeSummary } from '../api/types'
@@ -6,6 +6,7 @@ import { useWorkspace } from '../workspace'
 import { Button, Card, Input, Modal, Spinner } from '../ui/primitives'
 import { Icon } from '../ui/icons'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { conflictingEndpoints, hasEndpointConflict } from '../ui/endpoints'
 import { ImportDialog } from './ImportDialog'
 
 interface LiveInfo {
@@ -57,6 +58,15 @@ export function ProjectView() {
   const loadRecipes = useCallback(async () => {
     setRecipes(await api.listRecipes(id))
   }, [id])
+
+  /** Endpoints used by more than one PEA in this project — two rows, one physical server.
+   *
+   *  The import dialog warns at the moment it happens; this is the half that **persists**,
+   *  because the conflict does. Import, look away, come back tomorrow and the plant would
+   *  otherwise look fine. Free to compute: the list already carries every `endpoint_url`,
+   *  so there is no extra request. The rule itself lives in `ui/endpoints.ts`, pure and
+   *  tested, because it mirrors a server rule and mirrored rules drift. */
+  const conflicts = useMemo(() => conflictingEndpoints(peas ?? []), [peas])
 
   useEffect(() => {
     setPeas(null)
@@ -256,6 +266,14 @@ export function ProjectView() {
                       <span className="truncate text-base font-semibold text-ink">{pea.name}</span>
                     </div>
                     <div className="mt-2 truncate font-mono text-xs text-dim">{pea.endpoint_url || '—'}</div>
+                    {hasEndpointConflict(conflicts, pea.endpoint_url) && (
+                      <div
+                        className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warn"
+                        title={`Another PEA in this project uses ${pea.endpoint_url}. Both talk to the same server, so a recipe using both will fail when the second step finds the service already running.`}
+                      >
+                        ⚠ shared endpoint
+                      </div>
+                    )}
                     <div className="mt-1 truncate text-xs text-faint">{pea.aml_filename}</div>
                     <div className="mt-4 flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
                       Open control view <Icon name="chevron" size={14} />

@@ -2,6 +2,7 @@ import { useContext } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { Condition } from '../api/types'
 import type { BarSpan } from '../ui/recipeGraph'
+import type { TransitionPhase } from '../ui/runView'
 import { BranchPriority } from './branchPriority'
 
 /**
@@ -66,6 +67,12 @@ export interface TransitionNodeData {
   /** Where this transition sits among the ones leaving a common step, when there are several.
    *  Absent for a plain series — nothing to arbitrate. Computed by `recipeGraph.branchRanks`. */
   rank?: { rank: number; of: number }
+  /** Where this transition stands in a live run — `ui/runView.ts`.
+   *
+   *  `waiting` is the one that matters: every preceding step has **terminated** and this
+   *  transition has not fired, so the run is sitting on *this receptivity*. That is the
+   *  operator's first question — "what is it waiting for?" — answered on the chart. */
+  runPhase?: TransitionPhase
   [key: string]: unknown
 }
 
@@ -123,6 +130,8 @@ export function TransitionNode({ id, data, selected }: NodeProps) {
   const d = data as TransitionNodeData
   const move = useContext(BranchPriority)
   const set = Boolean(d.label)
+  const waiting = d.runPhase === 'waiting'
+  const fired = d.runPhase === 'fired'
   return (
     <div className="relative flex items-center gap-2">
       {d.rank && (
@@ -137,19 +146,38 @@ export function TransitionNode({ id, data, selected }: NodeProps) {
       {d.barIn ? <BranchBar span={d.barIn} side="left" /> : null}
       {d.barOut ? <BranchBar span={d.barOut} side="right" /> : null}
       <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-0 !bg-warn" />
-      {/* the receptivity bar — a tick across the directed link */}
-      <div className={`h-9 w-[4px] rounded-full bg-warn ${selected ? 'ring-2 ring-warn/40' : ''}`} />
+      {/* the receptivity bar — a tick across the directed link. During a run it carries the
+          run state: pulsing while the run waits on this receptivity, dimmed once it fired. */}
+      <div
+        className={`h-9 w-[4px] rounded-full ${
+          waiting ? 'bg-st-execute pulse-dot' : fired ? 'bg-warn/35' : 'bg-warn'
+        } ${selected ? 'ring-2 ring-warn/40' : ''}`}
+      />
       <span
         className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-          set
-            ? 'border-warn/40 bg-warn/10 text-warn'
-            : d.needsCondition
-              ? 'border-danger/50 bg-danger/10 text-danger'
-              : 'border-dashed border-edge-strong bg-elev text-faint'
+          waiting
+            ? 'border-st-execute/50 bg-st-execute/10 text-st-execute'
+            : fired
+              ? 'border-edge bg-white/4 text-faint'
+              : set
+                ? 'border-warn/40 bg-warn/10 text-warn'
+                : d.needsCondition
+                  ? 'border-danger/50 bg-danger/10 text-danger'
+                  : 'border-dashed border-edge-strong bg-elev text-faint'
         }`}
+        title={
+          waiting
+            ? 'Every preceding step has finished — the run is waiting for this condition'
+            : undefined
+        }
       >
         {set ? d.label : d.needsCondition ? 'condition required' : 'set condition…'}
       </span>
+      {waiting && (
+        <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-st-execute">
+          waiting
+        </span>
+      )}
       {d.isPit ? (
         // §3 — the branch ends here. A solid cap, deliberately distinct from the faded stub
         // of a transition that simply has not been wired yet.

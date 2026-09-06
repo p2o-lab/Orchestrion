@@ -108,11 +108,14 @@ function checkNoCycles(nodes: GraphNode[], edges: GraphEdge[]): ChartProblem[] {
  * the service the instant it started. Stated over the whole `from_ids`, because a continuous
  * step may also feed an AND-join (chart §4, §5(b)).
  *
- * ⚠ **Deliberately stricter than the server.** `_check_continuous_steps_have_a_real_receptivity`
- * tests `isinstance(cond, Always)` — a *bare* `Always` only. An `Always` nested inside an `Or` is
- * exactly as fatal (an `Or` is true the moment any child is) and the server currently accepts it.
- * This uses `containsAlways`, which walks the tree. **The server gap is the real defect and is
- * recorded in `010`;** until it is closed, a chart can be flagged here and still save.
+ * Uses `containsAlways`, which walks the tree: an `Always` nested inside an `Or` is exactly as
+ * fatal as a bare one, because an `Or` is true the moment any child is.
+ *
+ * ✅ **The server now agrees.** It used to test `isinstance(cond, Always)` — the outermost node
+ * only — so this module was stricter and a nested one could be flagged here and still save.
+ * `_check_continuous_steps_have_a_real_receptivity` walks the tree too since `2b9f281`. Worth
+ * remembering as the shape of the bug rather than the bug: **when a builder rule mirrors a
+ * server rule, the two drift, and it is the lax side that decides what actually happens.**
  */
 function checkAlwaysOnContinuous(
   nodes: GraphNode[],
