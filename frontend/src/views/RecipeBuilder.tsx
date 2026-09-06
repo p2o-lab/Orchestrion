@@ -80,7 +80,12 @@ function toGraphNode(n: Node): GraphNode {
     return { id: n.id, kind: 'step', pea_id: d.pea_id, service: d.service, procedure_id: d.procedure_id, params: d.params, x: n.position.x, y: n.position.y }
   }
   const d = n.data as TransitionNodeData
-  return { id: n.id, kind: 'transition', condition: d.condition, priority: d.priority }
+  // The position travels for a transition too. Dropping it here is what made a dragged
+  // transition snap back to a computed centroid on the next visit.
+  return {
+    id: n.id, kind: 'transition', condition: d.condition, priority: d.priority,
+    x: n.position.x, y: n.position.y,
+  }
 }
 const toGraphEdge = (e: Edge): GraphEdge => ({ source: e.source, target: e.target })
 
@@ -112,6 +117,13 @@ export function RecipeBuilder() {
    *  Node *positions* deliberately do not set it: `x`/`y` are UI-only and non-normative
    *  (`model.py:72-73`), so a dragged layout changes nothing about what the run does. */
   const [dirty, setDirty] = useState(false)
+  /** The canvas has been rearranged and not saved.
+   *
+   *  Tracked **separately** from `dirty` on purpose. A layout cannot change what a run does,
+   *  so it must not block `Run` — but it is still unsaved work, and before this there was no
+   *  cue at all: you dragged the chart into shape, the Save button looked idle, you navigated
+   *  away, and the arrangement was gone. Positions are only persisted by an explicit save. */
+  const [layoutDirty, setLayoutDirty] = useState(false)
   const [rf, setRf] = useState<ReactFlowInstance | null>(null)
   const [showMiniMap, setShowMiniMap] = useState(true)
   const dropPos = useRef<{ x: number; y: number } | null>(null)
@@ -181,7 +193,14 @@ export function RecipeBuilder() {
           } satisfies StepNodeData,
         }
       return {
-        id: n.id, type: 'transition', position: trPos.get(n.id) ?? { x: 360, y: 200 },
+        id: n.id, type: 'transition',
+        // A saved position wins; the computed centroid is the fallback for a transition
+        // that has never been placed by hand — including every recipe saved before
+        // transitions had coordinates at all (chart §9).
+        position:
+          n.x != null && n.y != null
+            ? { x: n.x, y: n.y }
+            : trPos.get(n.id) ?? { x: 360, y: 200 },
         data: {
           condition: n.condition,
           label: n.condition ? summarize(n.condition) : undefined,
@@ -506,6 +525,7 @@ export function RecipeBuilder() {
       setRecipe({ ...recipe, ...summary, definition })
       setSaved(true)
       setDirty(false)   // what is on the canvas is now what a Run would execute
+      setLayoutDirty(false)   // …and where it is now is what a reload will show
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
       setError(String((e as Error)?.message ?? e))
@@ -560,7 +580,9 @@ export function RecipeBuilder() {
             title={run.live ? 'Cannot edit a recipe while it is running — abort the run first' : undefined}
           >
             {saving && <Spinner className="h-4 w-4" />}
-            {saving ? 'Saving' : saved ? 'Saved ✓' : 'Save'}
+            {/* The dot is the cue that was missing: a rearranged canvas is unsaved work,
+                and positions are only persisted by an explicit save. */}
+            {saving ? 'Saving' : saved ? 'Saved ✓' : dirty || layoutDirty ? 'Save •' : 'Save'}
           </Button>
         </div>
       </div>
@@ -605,6 +627,9 @@ export function RecipeBuilder() {
                 deleteKeyCode={['Delete', 'Backspace']}
                 onNodesDelete={markEdited}
                 onEdgesDelete={markEdited}
+                // Once per completed drag, not once per pixel — a position change is only
+                // interesting when the author has finished putting the node somewhere.
+                onNodeDragStop={() => { setLayoutDirty(true); setSaved(false) }}
                 style={{ backgroundColor: '#171c27' }} // --color-canvas
               >
                 <Background bgColor="#171c27" color="rgba(255,255,255,0.07)" gap={22} size={1} />

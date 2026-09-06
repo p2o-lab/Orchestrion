@@ -632,10 +632,24 @@ impossible.
 
 ## 9. Layout
 
-**`[OURS]` Transitions are auto-laid-out.** `Transition` gains no `x`/`y`. A transition's position is a
-*function* of its neighbours — §6 requires it to span its branches — so auto-layout is the **correct
-model, not a compromise**. `RecipeStep` keeps its existing UI-only `x`/`y` (`model.py:72-73`). Adding
-transition coordinates later would be purely additive.
+**`[OURS]` Transitions are auto-laid-out *by default*, and stored once moved.**
+
+> **⚠ Amended 2026-09-06.** This section used to end *"`Transition` gains no `x`/`y` … auto-layout
+> is the **correct model, not a compromise**"*, and closed by noting that adding coordinates
+> later *"would be purely additive"*. That addition has now been made, because the original
+> rule was right about the default and wrong about the author.
+
+A transition's position **is** a function of its neighbours — §6 requires it to span its branches —
+so the centroid of the steps it links remains the placement for any transition nobody has moved,
+and for every recipe saved before this existed. What was wrong was recomputing it
+**unconditionally**: an author who dragged a transition somewhere deliberate had that discarded in
+silence, and the chart rearranged itself on the next visit. A layout is authored work.
+
+So `Transition` now carries optional `x`/`y` alongside `RecipeStep`'s (`model.py`), on exactly the
+same terms — **UI-only, non-normative, ignored by the engine and by `conditions`.** A saved
+position wins; the computed centroid is the fallback. Nothing about the chart's *semantics*
+changes, which is why this was additive: `graphToTransitions` emits the coordinates beside
+`from_ids`/`to_ids`/`condition`, and the round-trip tests compare on meaning, not on layout.
 
 ---
 

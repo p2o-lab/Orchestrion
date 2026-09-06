@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from orchestrion.recipe.model import (
     END,
+    Always,
     And,
     Elapsed,
     Header,
@@ -130,6 +131,34 @@ def test_step_ui_positions_round_trip() -> None:
     placed = RecipeStep(id="b", pea_id=1, service="Stirring", procedure_id=1, x=120.5, y=48.0)
     back = RecipeStep.model_validate(placed.model_dump())
     assert back.x == 120.5 and back.y == 48.0
+
+
+def test_transition_ui_positions_round_trip_and_default_to_none() -> None:
+    """A dragged transition must stay where it was put.
+
+    Its position used to be recomputed from its neighbours on every load, so an author's
+    layout was silently discarded whenever they navigated away and came back. The computed
+    centroid stays the *fallback* — which is why these default to None, and why every recipe
+    saved before this change still lays out sensibly.
+    """
+    bare = Transition(from_ids=["a"], to_ids=["b"], condition=Always())
+    assert bare.x is None and bare.y is None
+
+    placed = Transition(from_ids=["a"], to_ids=["b"], condition=Always(), x=310.0, y=88.5)
+    back = Transition.model_validate(placed.model_dump())
+    assert back.x == 310.0 and back.y == 88.5
+
+    # …and through a whole recipe, which is how it actually travels.
+    recipe = MasterRecipe(
+        header=Header(name="placed"),
+        steps=[
+            RecipeStep(id="a", pea_id=1, service="Stirring", procedure_id=1),
+            RecipeStep(id="b", pea_id=1, service="Stirring", procedure_id=1),
+        ],
+        transitions=[placed],
+    )
+    reloaded = MasterRecipe.model_validate_json(recipe.model_dump_json())
+    assert (reloaded.transitions[0].x, reloaded.transitions[0].y) == (310.0, 88.5)
 
 
 def test_step_and_condition_construct_directly() -> None:

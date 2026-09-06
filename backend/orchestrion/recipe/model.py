@@ -175,6 +175,17 @@ class Transition(BaseModel):
     from_ids: list[str]
     to_ids: list[str]
     condition: Condition
+    # UI-only canvas position, exactly like `RecipeStep.x`/`.y` — [design-not-dictated] and
+    # non-normative. The engine and conditions ignore them.
+    #
+    # `POL_Recipe_Chart_GRAFCET.md` §9 originally gave a transition no coordinates at all, on
+    # the grounds that its place is a *function* of its neighbours (§6 needs it to span its
+    # branches) — so it was computed on every load. That is a fine default and it stays the
+    # fallback, but it is not a fine *answer* to an author who dragged a transition somewhere
+    # deliberate: the position was silently discarded and the chart rearranged itself on the
+    # next visit. §9 called adding these "purely additive"; this is that addition.
+    x: float | None = None
+    y: float | None = None
 
 
 class MasterRecipe(BaseModel):

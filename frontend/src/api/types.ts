@@ -128,6 +128,11 @@ export interface Transition {
   from_ids: string[]
   to_ids: string[] // may contain the "END" sentinel
   condition: Condition
+  // UI-only canvas position, like RecipeStep's — non-normative, ignored by the engine.
+  // Absent on any recipe saved before this existed, and on one never dragged, in which case
+  // the builder falls back to computing the position from the transition's neighbours.
+  x?: number | null
+  y?: number | null
 }
 
 export interface RecipeHeader { name: string; version: number; author: string; product: string }

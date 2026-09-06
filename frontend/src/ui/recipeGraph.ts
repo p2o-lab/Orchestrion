@@ -46,9 +46,14 @@ export interface GraphNode {
   service?: string
   procedure_id?: number
   params?: Record<string, number>
-  /** step only — persisted canvas position (`model.py:72-73`, UI-only, non-normative).
-   *  Transitions deliberately have none: a transition's place is a *function* of its
-   *  neighbours (§9), so it is computed, never stored. */
+  /** Persisted canvas position — UI-only and non-normative, on **both** kinds.
+   *
+   *  §9 originally gave a transition none, because its place is a *function* of its
+   *  neighbours (§6 needs it to span its branches) and so could be recomputed on every
+   *  load. That is still the **fallback** — and it is what a chart saved before this, or
+   *  never dragged, gets. But recomputing *unconditionally* silently threw away a layout
+   *  the author had arranged by hand, and rearranged the chart behind their back on the
+   *  next visit. §9 called adding these "purely additive"; this is that addition. */
   x?: number | null
   y?: number | null
   /** transition only — the receptivity */
@@ -134,6 +139,10 @@ export function graphToTransitions(
       from_ids: from,
       to_ids: to.length > 0 ? to : [END_ID],
       condition: tr.condition ?? { type: 'Always' },
+      // Carried so a hand-placed transition comes back where it was left. `null` rather
+      // than omitted when unknown, matching how steps serialise.
+      x: tr.x ?? null,
+      y: tr.y ?? null,
     })
   }
   return { transitions, error: null }
@@ -157,7 +166,7 @@ export function recipeToGraph(recipe: MasterRecipe): { nodes: GraphNode[]; edges
     const id = `t${i + 1}`
     // The index *is* the priority (chart §8) — carry it explicitly so the canvas can show and
     // change it, and so a re-save reproduces the order instead of reshuffling it.
-    nodes.push({ id, kind: 'transition', condition: t.condition, priority: i })
+    nodes.push({ id, kind: 'transition', condition: t.condition, priority: i, x: t.x, y: t.y })
     t.from_ids.forEach((f) => edges.push({ source: f, target: id }))
     // END is a sentinel, not a node — a branch that ends simply leaves the output unwired,
     // and the canvas draws that as a cap (§3).

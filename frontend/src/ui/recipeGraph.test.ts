@@ -44,9 +44,16 @@ const hot: Condition = {
 }
 const always: Condition = { type: 'Always' }
 
-/** Sort ids so a comparison does not depend on edge order. */
+/** Sort ids so a comparison does not depend on edge order, and normalise the UI-only
+ *  coordinates so a round trip is compared on **meaning**, not on layout: a transition that
+ *  was never placed by hand comes back as `null` where the input had nothing at all.
+ *  Placement is asserted on its own, in the §9 block. */
 const canon = (ts: ReturnType<typeof graphToTransitions>['transitions']) =>
-  ts.map((t) => ({ ...t, from_ids: [...t.from_ids].sort(), to_ids: [...t.to_ids].sort() }))
+  ts.map((t) => ({
+    from_ids: [...t.from_ids].sort(),
+    to_ids: [...t.to_ids].sort(),
+    condition: t.condition,
+  }))
 
 describe('two node kinds, nothing else', () => {
   it('maps a series: s1 → T → s2', () => {
@@ -55,7 +62,10 @@ describe('two node kinds, nothing else', () => {
       [link('s1', 't1'), link('t1', 's2')],
     )
     expect(error).toBeNull()
-    expect(transitions).toEqual([{ from_ids: ['s1'], to_ids: ['s2'], condition: hot }])
+    // x/y are the UI-only coordinates; `null` because this transition was never placed.
+    expect(transitions).toEqual([
+      { from_ids: ['s1'], to_ids: ['s2'], condition: hot, x: null, y: null },
+    ])
   })
 
   it('rejects a step wired straight to another step', () => {
@@ -137,7 +147,9 @@ describe('the end of a branch is an unwired output (§3)', () => {
       [link('s1', 't1')],
     )
     expect(error).toBeNull()
-    expect(transitions).toEqual([{ from_ids: ['s1'], to_ids: [END_ID], condition: hot }])
+    expect(transitions).toEqual([
+      { from_ids: ['s1'], to_ids: [END_ID], condition: hot, x: null, y: null },
+    ])
   })
 
   it('isPitTransition sees the difference', () => {
@@ -324,7 +336,7 @@ describe('synchronization bars are drawn from link count — Table 2 [9], chart 
   })
 })
 
-describe('transitions are placed, not stored (§9)', () => {
+describe('transition placement — computed by default, stored once dragged (§9)', () => {
   it('sits at the centroid of the steps it links', () => {
     const nodes = [step('s1', 0, 0), transition('t1'), step('s2', 100, 50)]
     const at = transitionPositions(nodes, [link('s1', 't1'), link('t1', 's2')])
@@ -337,7 +349,9 @@ describe('transitions are placed, not stored (§9)', () => {
     expect(at.get('t1')).toEqual({ x: 50, y: 200 / 3 })
   })
 
-  it('recipeToGraph gives transitions no stored coordinates', () => {
+  it('a transition with no saved coordinates has none — the centroid is the fallback', () => {
+    // Every recipe saved before transitions had coordinates looks like this, so the
+    // computed placement above must still be what they get.
     const recipe: MasterRecipe = {
       header: { name: 'r', version: 1, author: '', product: '' },
       formula: {},
@@ -347,6 +361,40 @@ describe('transitions are placed, not stored (§9)', () => {
     const tr = recipeToGraph(recipe).nodes.find((n) => n.kind === 'transition')!
     expect(tr.x).toBeUndefined()
     expect(tr.y).toBeUndefined()
+  })
+
+  it('a hand-placed transition keeps its position through a full round trip', () => {
+    // The defect: the position was dropped on the way out, so a dragged transition was
+    // recomputed to a centroid on the next visit and the chart rearranged itself.
+    const recipe: MasterRecipe = {
+      header: { name: 'r', version: 1, author: '', product: '' },
+      formula: {},
+      steps: [
+        { id: 's1', pea_id: 1, service: 'Stirring', procedure_id: 2, params: {}, x: 0, y: 0 },
+        { id: 's2', pea_id: 1, service: 'Stirring', procedure_id: 2, params: {}, x: 400, y: 0 },
+      ],
+      transitions: [
+        { from_ids: ['s1'], to_ids: ['s2'], condition: always, x: 137, y: -64 },
+      ],
+    }
+
+    const graph = recipeToGraph(recipe)
+    const tr = graph.nodes.find((n) => n.kind === 'transition')!
+    expect([tr.x, tr.y]).toEqual([137, -64])          // survives load…
+
+    const { transitions, error } = graphToTransitions(graph.nodes, graph.edges)
+    expect(error).toBeNull()
+    expect([transitions[0].x, transitions[0].y]).toEqual([137, -64])   // …and save
+
+    // Deliberately NOT the centroid it would otherwise have been given (200, 0).
+    expect(transitions[0].x).not.toBe(200)
+  })
+
+  it('serialises an unplaced transition as null, the way steps do', () => {
+    const nodes = [step('s1', 0, 0), transition('t1'), step('s2', 100, 0)]
+    const { transitions } = graphToTransitions(nodes, [link('s1', 't1'), link('t1', 's2')])
+    expect(transitions[0].x).toBeNull()
+    expect(transitions[0].y).toBeNull()
   })
 })
 

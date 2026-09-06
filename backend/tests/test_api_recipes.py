@@ -71,6 +71,39 @@ def test_create_list_get_recipe(pea, client):
     assert detail["definition"]["transitions"][0]["condition"]["state"] == "COMPLETED"
 
 
+def test_canvas_positions_survive_save_and_reload(pea, client):
+    """The layout an author arranged must come back — for **both** node kinds.
+
+    Steps have carried `x`/`y` since M5.4; transitions did not, so every one you dragged was
+    recomputed from its neighbours on the next visit and the chart rearranged itself. This
+    pins the whole chain the position travels: POST -> stored JSON -> GET.
+    """
+    project_id, pea_id = pea
+    body = _recipe(pea_id)
+    body["steps"][0]["x"], body["steps"][0]["y"] = 120.0, 40.0
+    body["transitions"][0]["x"], body["transitions"][0]["y"] = 310.0, -64.0
+
+    recipe_id = client.post(f"/api/projects/{project_id}/recipes", json=body).json()["id"]
+    definition = client.get(
+        f"/api/projects/{project_id}/recipes/{recipe_id}"
+    ).json()["definition"]
+
+    assert (definition["steps"][0]["x"], definition["steps"][0]["y"]) == (120.0, 40.0)
+    assert (definition["transitions"][0]["x"], definition["transitions"][0]["y"]) == (310.0, -64.0)
+
+
+def test_a_recipe_without_positions_is_still_accepted(pea, client):
+    """They are optional, so every recipe saved before transitions had coordinates loads."""
+    project_id, pea_id = pea
+    recipe_id = client.post(
+        f"/api/projects/{project_id}/recipes", json=_recipe(pea_id)
+    ).json()["id"]
+    transition = client.get(
+        f"/api/projects/{project_id}/recipes/{recipe_id}"
+    ).json()["definition"]["transitions"][0]
+    assert transition["x"] is None and transition["y"] is None
+
+
 def test_update_and_delete_recipe(pea, client):
     project_id, pea_id = pea
     recipe_id = client.post(f"/api/projects/{project_id}/recipes", json=_recipe(pea_id)).json()["id"]
