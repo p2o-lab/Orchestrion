@@ -6,7 +6,7 @@
 > explains **what ISA-88 / BatchML actually are**, how they map onto MTP, the engine architecture on
 > top of our existing control/registry seams, the data model, and the incremental roadmap.
 >
-> **Status:** design locked with Marwen 2026-07-26. **M5.0–M5.4 built, then corrected in full by
+> **Status:** design locked 2026-07-26. **M5.0–M5.4 built, then corrected in full by
 > [`progress/010`](progress/010_m5_step_model_correction.md), which is complete (2026-08-08).
 > ▶ Next is M5.5, the live execution view.** Journals: `progress/009` (historical — how it was
 > first built), then **`010`** (what is in the code now). What is left:
@@ -174,7 +174,7 @@ regulatory recognition. Optional for *running* recipes; valuable for a *standard
 
 ---
 
-## 3. Decisions locked (with Marwen, 2026-07-26)
+## 3. Decisions locked (2026-07-26)
 
 1. **Scope** — ambitious *destination* (full engine: sequential + parallel + selection + exceptions +
    drag-and-drop builder + live execution view), *incremental* build (one tested increment at a time).
@@ -338,7 +338,7 @@ history is a later increment.
   (the orchestration layer is not yet standardized). Never guess.
 - **Rule 2** — one increment at a time, tested, journalled, paused for go before the next.
 - Reuse `opcua/control.py` + `opcua/registry.py` — the engine adds orchestration logic only.
-- Git stays Marwen's; one commit per increment, his dictated message.
+- Git stays the maintainer's; one commit per increment, with a dictated message.
 
 ---
 

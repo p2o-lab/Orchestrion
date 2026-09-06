@@ -290,7 +290,7 @@ wanting. `010` §14's audit was deliberately scoped to the recipe path.
 demo against **VisionForge**, the lab's real PEA — has never been run, because its shipped `.aml` is
 MTPPy-generated and malformed and no valid MTP for it exists yet.
 
-*Marwen, 2026-08-08: deliberately parked — "still very far in the future."* Recorded here because the
+*Deliberately parked 2026-08-08 — "still very far in the future."* Recorded here because the
 consequence is real: **no line of this project has been proven against real hardware timing**, and
 B4 is precisely the kind of defect that only appears there. `progress/008` close-out.
 
