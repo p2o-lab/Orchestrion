@@ -123,8 +123,8 @@ from a real vendor MTP export. One command serves an N-module plant.
 **1 · Clone**
 
 ```bash
-git clone https://github.com/p2o-lab/orchestrion.git
-cd orchestrion
+git clone https://github.com/marwendh/Orchestrion.git
+cd Orchestrion
 ```
 
 **2 · Backend**
