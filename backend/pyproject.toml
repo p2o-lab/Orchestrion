@@ -3,11 +3,26 @@ name = "orchestrion"
 version = "0.1.0"
 description = "Open-source Process Orchestration Layer (POL) for MTP-based modular process plants"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "asyncua", "uvicorn", "websockets", "pydantic", "lxml", "sqlmodel", "python-multipart"]
+# Lower bound = the version the suite is green against; upper bound = the next major, so a
+# breaking release cannot arrive silently on a fresh install.
+dependencies = [
+    "fastapi>=0.139,<1.0",           # API, and the live-state WebSocket
+    "asyncua>=2.0,<3.0",             # OPC UA client, and the VirtualPEA's server
+    "uvicorn>=0.51,<1.0",            # ASGI server (never imported; the app is run with it)
+    "websockets>=16.1,<17.0",        # the WebSocket transport uvicorn accepts on
+    "pydantic>=2.13,<3.0",           # wire schemas and the recipe model
+    "lxml>=6.1,<7.0",                # the XML engine under the manifest reader
+    "sqlmodel>=0.0.39,<0.1",         # ORM layer. Still 0.0.x, so pinned tighter than the rest
+    "sqlalchemy>=2.0,<3.0",          # imported directly (db/engine.py, and the API test fixtures)
+    "python-multipart>=0.0.32,<0.1", # multipart upload of an MTP file (never imported either)
+]
 
 [project.optional-dependencies]
 # httpx2 (not httpx) is what starlette's TestClient imports as of starlette 1.3.1.
-dev = ["pytest", "httpx2"]
+dev = [
+    "pytest>=9.1,<10.0",
+    "httpx2>=2.7,<3.0",
+]
 
 [build-system]
 requires = ["hatchling"]
